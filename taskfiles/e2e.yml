@@ -184,7 +184,7 @@ tasks:
       gateway-subscribed client receives it, against a Pro-gated kafka-backend server built
       from source. Fails (not skips) if the delivery check is absent or not "pass".
     vars:
-      COMPOSE: docker compose -f docker-compose.yml -f taskfiles/e2e/kafka-ingest.override.yml --profile kafka
+      COMPOSE: docker compose -f docker-compose.yml -f taskfiles/e2e/kafka.override.yml --profile kafka
       # Raw 64-byte Ed25519 admin private key, generated per-run and mounted into the tester by
       # the override; its public half is wired to provisioning as ADMIN_BOOTSTRAP_KEY.
       ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
@@ -200,23 +200,16 @@ tasks:
       - |
         set -eu
         . taskfiles/e2e/stack.sh
-        # All setup that `up` depends on runs in THIS shell so the values reach the boot env.
-        echo "=== Generate keys + mint Pro token (before boot) ==="
-        TOKEN=$(e2e_mint_license pro 'E2E Kafka')
-        ADMIN_BOOTSTRAP_KEY=$(e2e_gen_admin_key "$(pwd)/{{.ADMIN_KEY_FILE}}")
-        echo "=== Boot kafka-mode stack (build from source, Pro license) ==="
-        MESSAGE_BACKEND=kafka \
-        SUKKO_LICENSE_KEY="$TOKEN" \
-        ADMIN_BOOTSTRAP_KEY="$ADMIN_BOOTSTRAP_KEY" \
-        CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-        WEBHOOK_INTERNAL_TOKEN="$(openssl rand -hex 24)" \
-        {{.COMPOSE}} up -d --build --wait
+        # Shared boot path (§X single source of truth): mint Pro token, gen admin key, boot the
+        # kafka-backend stack. All setup that `up` depends on runs inside e2e_boot_cell so the
+        # values reach the boot env.
+        e2e_boot_cell pro kafka "$(pwd)/{{.ADMIN_KEY_FILE}}" {{.COMPOSE}}
       - |
         set -eu
         . taskfiles/e2e/stack.sh
         echo "=== Readiness gate ==="
-        {{.COMPOSE}} exec -T redpanda rpk cluster health
         e2e_readiness_gate {{.PROVISIONING_URL}} pro
+        e2e_kafka_ready {{.COMPOSE}}
       - |
         set -eu
         echo "=== Run kafka-ingest suite ==="
@@ -291,17 +284,10 @@ tasks:
       - |
         set -eu
         . taskfiles/e2e/stack.sh
-        # All setup that `up` depends on runs in THIS shell so the values reach the boot env.
-        echo "=== Mint Enterprise token + admin key (before boot) ==="
-        TOKEN=$(e2e_mint_license enterprise 'E2E Push')
-        ADMIN_BOOTSTRAP_KEY=$(e2e_gen_admin_key "$(pwd)/{{.ADMIN_KEY_FILE}}")
-        echo "=== Boot kafka-mode Enterprise stack (build from source, push-service) ==="
-        MESSAGE_BACKEND=kafka \
-        SUKKO_LICENSE_KEY="$TOKEN" \
-        ADMIN_BOOTSTRAP_KEY="$ADMIN_BOOTSTRAP_KEY" \
-        CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-        WEBHOOK_INTERNAL_TOKEN="$(openssl rand -hex 24)" \
-        {{.COMPOSE}} up -d --build --wait
+        # Shared boot path (§X single source of truth): mint Enterprise token, gen admin key, boot
+        # the kafka-backend Enterprise stack (the push-validate override adds --profile enterprise
+        # so push-service builds/starts here too).
+        e2e_boot_cell enterprise kafka "$(pwd)/{{.ADMIN_KEY_FILE}}" {{.COMPOSE}}
       - |
         set -eu
         . taskfiles/e2e/stack.sh
@@ -334,95 +320,80 @@ tasks:
         [ "$rc" -eq 0 ] || { echo "FAIL: push delivery guard failed (rc=$rc)"; exit 1; }
         echo "=== push delivery PASSED (real WebPush received by the mock receiver) ==="
 
-  validate-battery:
+  # ---------------------------------------------------------------------------
+  # Cell runner — the single boot path for an E2E (edition, backend, suites) cell
+  # ---------------------------------------------------------------------------
+  # Parametrized foundation of the editions×backends grid: boot a build-from-source
+  # stack for the given edition + message backend, readiness-gate, run the validate
+  # suites hermetically with the anti-vacuous guard, tear down (even on failure).
+  # The boot/readiness/battery logic lives once in taskfiles/e2e/stack.sh (§X).
+  cell:
     desc: >-
-      Full validate-suite battery against an Enterprise-licensed direct-mode stack built
-      from source. 17 suites, fail-closed: a suite fails the run on report status != pass
-      OR any skipped check (empty allow-list). All suites run even after a failure; the
-      task exits non-zero at the end if any failed.
+      Run one E2E grid cell — task e2e:cell EDITION=<community|pro|enterprise>
+      BACKEND=<direct|kafka> SUITES="<space-separated suites>". Fail-closed: a suite
+      fails the cell on report status != pass OR any skipped check (empty allow-list).
+    requires:
+      vars: [EDITION, BACKEND, SUITES]
     vars:
-      # No compose profiles: the enterprise profile (push-service) needs kafka, and
-      # the pro profile (webhook-worker) is deferred — the battery caught 3 boot bugs
-      # in it (see the webhooks exclusion below). The Enterprise LICENSE (not a profile)
-      # unlocks the SSE/revocation feature gates the battery exercises.
-      COMPOSE: docker compose -f docker-compose.yml -f taskfiles/e2e/validate-battery.override.yml
+      # Backend selects the compose override (direct.override.yml | kafka.override.yml);
+      # kafka additionally needs --profile kafka to start Redpanda. Enterprise cells use
+      # the enterprise LICENSE (via e2e_boot_cell), NOT the enterprise profile — the grid
+      # runs no push suite, so push-service is intentionally not started.
+      COMPOSE: 'docker compose -f docker-compose.yml -f taskfiles/e2e/{{.BACKEND}}.override.yml{{if eq .BACKEND "kafka"}} --profile kafka{{end}}'
       ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
       PROVISIONING_URL: http://localhost:18080
       TESTER_TOKEN: sukko-dev-token
-      # CONFIRMED-STABLE green set — deterministic pass across runs. The battery
-      # grows as suites are triaged; the rest are tracked in the backlog issue:
-      #  - push:               deferred — push-service does not boot (#158); its
-      #                        delivery check (mock receiver already in the tester)
-      #                        runs in the kafka-mode job once push-service boots.
-      #  - webhooks:           webhook-worker does not boot — 3 bugs (#158) — deferred.
-      #  - auth:               'wrong tenant JWT accepted' — potential cross-tenant finding.
-      #  - rest-publish:       REST publish → WS/SSE delivery fails (negatives pass).
-      #  - tenant-isolation:   passed once, failed once on delivery timing — verify stability.
-      #  - token-revocation/api-key/upgrade: suite 'error' (auth-mode/setup).
-      #  - edition-limits:     SSE/REST feature-gate assertions under Enterprise.
-      #  - provisioning:       routing-rules topic assertion (test-default vs default).
-      #  - ratelimit:          skips (gateway rate limiting disabled in the stack).
-      #  - license-reload:     manual e2e:license family (mutates edition mid-run).
-      #  - kafka-ingest:       own kafka-mode job.  smoke/load/soak/stress: not validate suites.
-      SUITES: channels pubsub ordering reconnect sse auth
     cmds:
+      # Teardown runs even on failure (Taskfile defer, LIFO): stack down, then remove the key.
       - defer: "{{.COMPOSE}} down -v"
       - defer: rm -f {{.ADMIN_KEY_FILE}}
       - |
         set -eu
         . taskfiles/e2e/stack.sh
-        echo "=== Mint Enterprise token + admin key (before boot) ==="
-        TOKEN=$(e2e_mint_license enterprise 'E2E Battery')
-        ADMIN_BOOTSTRAP_KEY=$(e2e_gen_admin_key "$(pwd)/{{.ADMIN_KEY_FILE}}")
-        echo "=== Boot direct-mode stack (build from source, Enterprise license) ==="
-        SUKKO_LICENSE_KEY="$TOKEN" \
-        ADMIN_BOOTSTRAP_KEY="$ADMIN_BOOTSTRAP_KEY" \
-        CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-        WEBHOOK_INTERNAL_TOKEN="$(openssl rand -hex 24)" \
-        {{.COMPOSE}} up -d --build --wait
+        echo "=== Cell: edition={{.EDITION}} backend={{.BACKEND}} suites='{{.SUITES}}' ==="
+        e2e_boot_cell {{.EDITION}} {{.BACKEND}} "$(pwd)/{{.ADMIN_KEY_FILE}}" {{.COMPOSE}}
       - |
         set -eu
         . taskfiles/e2e/stack.sh
         echo "=== Readiness gate ==="
-        e2e_readiness_gate {{.PROVISIONING_URL}} enterprise
+        e2e_readiness_gate {{.PROVISIONING_URL}} {{.EDITION}}
+        if [ "{{.BACKEND}}" = "kafka" ]; then
+          e2e_kafka_ready {{.COMPOSE}}
+        fi
       - |
         set -eu
+        . taskfiles/e2e/stack.sh
         echo "=== Run validate battery ==="
-        # Hermetic CLI env (no ambient context; throwaway tenants per run). Gating parses
-        # the report rather than relying on the CLI exit code — the extraction pipe masks
-        # it — and fails closed on BOTH a non-pass status AND any skipped check. The skip
-        # allow-list is EMPTY by design: in this fully-provisioned Enterprise stack no
-        # suite has a legitimate reason to skip, and a skip in CI means coverage silently
-        # vanished. Any future exemption must be added here with a written reason.
-        TMPCFG=$(mktemp -d)
-        FAILED=""
-        for suite in {{.SUITES}}; do
-          echo "--- suite: $suite ---"
-          REPORT=$(HOME="$TMPCFG" XDG_CONFIG_HOME="$TMPCFG/.config" SUKKO_TESTER_TOKEN={{.TESTER_TOKEN}} sukko test validate --suite "$suite" --follow --output json 2>/dev/null | grep '"test_type"' | tail -1) || true
-          if [ -z "$REPORT" ]; then
-            echo "    verdict: NO REPORT"
-            FAILED="$FAILED $suite(no-report)"
-            continue
-          fi
-          STATUS=$(echo "$REPORT" | jq -r '.status // "missing"')
-          SKIPS=$(echo "$REPORT" | jq -r '[.checks[]? | select(.status=="skip") | .name] | join(",")')
-          FAILS=$(echo "$REPORT" | jq -r '[.checks[]? | select(.status=="fail") | .name] | join(",")')
-          if [ "$STATUS" != "pass" ]; then
-            echo "    verdict: $STATUS (failed checks: ${FAILS:-<none listed>})"
-            FAILED="$FAILED $suite($STATUS)"
-          elif [ -n "$SKIPS" ]; then
-            echo "    verdict: SKIPPED CHECKS: $SKIPS"
-            FAILED="$FAILED $suite(skip:$SKIPS)"
-          else
-            echo "    verdict: pass"
-          fi
-        done
-        rm -rf "$TMPCFG"
-        if [ -n "$FAILED" ]; then
-          echo "=== validate battery FAILED:$FAILED ==="
-          exit 1
-        fi
-        echo "=== validate battery PASSED ({{.SUITES}}) ==="
+        e2e_run_battery {{.TESTER_TOKEN}} {{.SUITES}}
+
+  # ---------------------------------------------------------------------------
+  # Anchor cells — the Spec 1 grid (single source of truth for each cell's suites).
+  # CI drives these by name (smoke-on-push / full-grid-on-schedule); later specs add rows.
+  # ---------------------------------------------------------------------------
+  cell:community-direct:
+    desc: "Grid cell — Community/direct (green set minus Pro-gated sse)."
+    cmds:
+      - task: cell
+        vars: {EDITION: community, BACKEND: direct, SUITES: "channels pubsub ordering reconnect auth"}
+
+  cell:pro-kafka:
+    desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."
+    cmds:
+      - task: cell
+        vars: {EDITION: pro, BACKEND: kafka, SUITES: "channels pubsub ordering reconnect sse auth"}
+
+  cell:enterprise-kafka:
+    desc: "Grid cell — Enterprise/kafka (full green set under an Enterprise license)."
+    cmds:
+      - task: cell
+        vars: {EDITION: enterprise, BACKEND: kafka, SUITES: "channels pubsub ordering reconnect sse auth"}
+
+  validate-battery:
+    desc: >-
+      Validate battery on the direct backend — the Community/direct grid cell. (Re-expressed
+      via the cell runner; sse moved to the kafka cells, which unlock the Pro-gated feature.)
+    cmds:
+      - task: cell:community-direct
 
   license-reload:
     desc: Run license hot-reload validation (requires dev signing key)

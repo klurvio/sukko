@@ -196,7 +196,7 @@ services:
       # mode (Community), so the kafka-ingest suite correctly SKIPS here. Running
       # kafka-ingest requires a Pro/Enterprise kafka-backend server — provided by
       # the dedicated e2e harness, not the operator quick-start compose.
-      # Explicit topic namespace, required once KAFKA_BROKERS is set (kafka-ingest override);
+      # Explicit topic namespace, required once KAFKA_BROKERS is set (kafka override);
       # MUST match the server-under-test's KAFKA_TOPIC_NAMESPACE.
       KAFKA_TOPIC_NAMESPACE: "${KAFKA_TOPIC_NAMESPACE:-local}"
       # Webhook delivery base URL — the address webhook-worker uses to POST deliveries back

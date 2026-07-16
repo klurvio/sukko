@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/klurvio/sukko/cmd/tester/auth"
@@ -12,6 +13,23 @@ import (
 )
 
 const orderingMessageCount = 20
+
+// orderingMessageIDPrefix tags the measured sequence's message IDs so the checks can be isolated
+// from delivery-warmup probe traffic (see measuredIDs / waitForDeliveryLive).
+const orderingMessageIDPrefix = "order-"
+
+// measuredIDs filters an arrival-order list to the measured sequence (order-* IDs), dropping any
+// warmup-probe straggler that arrives after the tracker reset so it cannot inflate the received
+// count or corrupt the FIFO-order check.
+func measuredIDs(all []string) []string {
+	out := make([]string, 0, len(all))
+	for _, id := range all {
+		if strings.HasPrefix(id, orderingMessageIDPrefix) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
 
 func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	provClient := run.authResult.ProvClient
@@ -34,19 +52,26 @@ func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	}
 	defer func() { _ = user.Client.Close() }()
 
-	if err := user.Client.Subscribe([]string{tenantChannel(tenantID, "general.test")}); err != nil {
+	channel := tenantChannel(tenantID, "general.test")
+	if err := user.Client.Subscribe([]string{channel}); err != nil {
 		return []metrics.CheckResult{{Name: "subscribe", Status: "fail", Error: err.Error()}}, nil
 	}
 
-	time.Sleep(500 * time.Millisecond) // allow subscription to propagate
+	// Warm up the delivery loop before the measured sequence. A fixed sleep is a direct-mode
+	// assumption: in Kafka mode the ws-server consumer joins this freshly-provisioned tenant's topic
+	// at AtEnd only after a cold-start propagation window, so early messages would be dropped. The
+	// warmup republishes a probe until it round-trips (loop live), then clears the tracker.
+	if err := waitForDeliveryLive(ctx, user, channel, logger); err != nil {
+		return []metrics.CheckResult{{Name: "delivery warmup", Status: "fail", Error: err.Error()}}, nil
+	}
 
 	// Publish N messages in strict sequence
 	for i := range orderingMessageCount {
 		payload, _ := json.Marshal(map[string]any{ // json.Marshal on literal map of primitives cannot fail
-			"msg_id": fmt.Sprintf("order-%04d", i),
+			"msg_id": fmt.Sprintf(orderingMessageIDPrefix+"%04d", i),
 			"ts":     time.Now().UnixMilli(),
 		})
-		if err := user.Client.Publish(tenantChannel(tenantID, "general.test"), payload); err != nil {
+		if err := user.Client.Publish(channel, payload); err != nil {
 			return []metrics.CheckResult{{
 				Name: "publish sequence", Status: "fail",
 				Error: fmt.Sprintf("publish msg %d: %v", i, err),
@@ -54,7 +79,8 @@ func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 		}
 	}
 
-	// Wait for all messages to arrive
+	// Wait for all measured messages to arrive. Count only the measured IDs (order-*): a late
+	// warmup-probe straggler delivered after the tracker reset MUST NOT inflate the count.
 	deadline := time.After(10 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -66,7 +92,7 @@ func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 		case <-ctx.Done():
 			goto check
 		case <-ticker.C:
-			if user.ReceivedCount() >= orderingMessageCount {
+			if len(measuredIDs(user.ReceivedOrder())) >= orderingMessageCount {
 				time.Sleep(200 * time.Millisecond) // grace period for stragglers
 				goto check
 			}
@@ -74,7 +100,7 @@ func validateOrdering(ctx context.Context, run *TestRun, logger zerolog.Logger) 
 	}
 
 check:
-	received := user.ReceivedOrder()
+	received := measuredIDs(user.ReceivedOrder())
 	checks := make([]metrics.CheckResult, 0, 2)
 
 	if len(received) < orderingMessageCount {
