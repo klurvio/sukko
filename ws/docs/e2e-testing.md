@@ -179,24 +179,44 @@ their own precise rules. When targeting a pre-provisioned deployment with a
 static tester token, ensure the target tenant has channel rules covering the
 suite channels or every subscribe will be filtered to an empty list.
 
-### 2.0 Automated battery (CI)
+### 2.0 Automated battery — the editions×backends grid (CI)
 
-`task e2e:validate-battery` runs the confirmed-stable validate suites — `channels`,
-`pubsub` (WS delivery + scoping), `ordering`, `reconnect`, `sse`, `auth` (JWT
-validation incl. the cross-tenant "wrong tenant rejected" check, #158) — against an
-**Enterprise-licensed, direct-backend stack built from source**, covering both client
-transports (WebSocket + SSE) over the Community-default (direct) data path. It executes
-as the `e2e-validate-battery` job of the CI workflow on every push to `main` (plus
-`workflow_dispatch`). The suite list grows as the remaining suites are triaged (tracked
-in the validate-battery backlog issue).
+The confirmed-stable validate suites — `channels`, `pubsub` (WS delivery + scoping),
+`ordering`, `reconnect`, `sse`, `auth` (JWT validation incl. the cross-tenant "wrong
+tenant rejected" check, #158) — run as a **grid of cells**, each booting a
+build-from-source stack for a specific `(edition, backend)` via the single cell runner
+`task e2e:cell EDITION=<…> BACKEND=<…> SUITES="<…>"` (helpers in `taskfiles/e2e/stack.sh`).
+Named anchor cells wrap the runner with their suite sets:
 
-**Fail-closed contract:** a suite fails the battery on a non-`pass` report **or any
-skipped check**. The skip allow-list is **empty by design** — in a fully-provisioned
-Enterprise stack no suite has a legitimate reason to skip, and a skip in CI means
-coverage silently vanished. All suites run even after a failure; the task reports every
-failed suite and exits non-zero at the end.
+| Cell (`task e2e:cell:<name>`) | Edition | Backend | Suites |
+|---|---|---|---|
+| `community-direct` | Community (no license) | direct | `channels pubsub ordering reconnect auth` |
+| `pro-kafka` | Pro | kafka | `channels pubsub ordering reconnect sse auth` |
+| `enterprise-kafka` | Enterprise | kafka | `channels pubsub ordering reconnect sse auth` |
 
-**Not yet in the battery (tracked for triage):** `auth`, `rest-publish`, `tenant-isolation`,
+Every backend (direct, kafka) and every edition (Community, Pro, Enterprise) is covered
+by at least one cell. **`sse` is Pro-gated**, so it is omitted from the Community/direct
+cell (where the feature gate would reject the SSE connect) and covered on the kafka cells
+instead — no SSE coverage is lost across the grid. `task e2e:validate-battery` remains as
+an alias for the `community-direct` cell.
+
+**CI cadence:** a **push to `main`** runs only the **smoke cells** (`community-direct` +
+`pro-kafka` — one per backend) as the `e2e-grid` matrix; the **nightly schedule** and
+**manual `workflow_dispatch`** run the **full grid** (all three cells). The cell list is
+computed by the `e2e-grid-setup` job — later specs add cells by editing that list plus a
+named cell task. The `e2e-guard-fixtures` job runs the anti-vacuous guard fixture tests
+(no Docker, ~2s) first, so a regressed guard fails fast before any stack boots.
+`kafka-ingest` (kafka-ingest + rest-publish suites) and `push` keep their own jobs — they
+are not green-set grid cells.
+
+**Fail-closed contract:** a suite fails its cell on a non-`pass` report **or any skipped
+check**. The skip allow-list is **empty by design** — in a fully-provisioned stack no
+suite has a legitimate reason to skip, and a skip in CI means coverage silently vanished.
+All suites run even after a failure; the cell reports every failed suite and exits
+non-zero at the end. The generic guard is `e2e_battery_verdict` (fixture-tested by
+`taskfiles/e2e/battery_guard_test.sh`).
+
+**Not yet in the grid (tracked for triage):** `rest-publish`, `tenant-isolation`,
 `token-revocation`, `edition-limits`, `api-key`, `upgrade`, `provisioning`, `ratelimit` —
 each surfaced a real first-contact finding when first run against a live gateway (see the
 validate-battery backlog issue). `kafka-ingest` runs in its own kafka-mode job and `push` in

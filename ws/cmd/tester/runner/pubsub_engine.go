@@ -20,6 +20,69 @@ import (
 // defaultDeliveryTimeout is the maximum time to wait for message delivery.
 const defaultDeliveryTimeout = 5 * time.Second
 
+// Delivery-liveness warmup bounds (see waitForDeliveryLive). Sized for the Kafka cold-start
+// window: a freshly-provisioned tenant's ws-server consumer joins its topic at AtEnd only after a
+// control-plane propagation delay (WatchTopics delta → topic create → AddConsumeTopics), so early
+// publishes are dropped. Direct mode returns within one interval.
+const (
+	deliveryWarmupTimeout  = 15 * time.Second
+	deliveryWarmupInterval = 250 * time.Millisecond
+)
+
+// waitForDeliveryLive proves the full publish→(produce→consume→)broadcast loop is live for `channel`
+// before a caller publishes a measured sequence, then resets the user's received tracker so the
+// warmup does not pollute the caller's counts. Backend-agnostic: in direct mode the first probe
+// round-trips within one interval; in Kafka mode it absorbs the new-tenant consumer cold-start.
+//
+// It REPUBLISHES the probe each interval rather than publishing once: in Kafka mode the first
+// probe(s) may be produced before the consumer joins the tenant topic (AtEnd) and thus be dropped,
+// so a single probe can be lost. Receiving any probe means the loop is live. Returns an error
+// (never a silent skip) if the loop is not live within deliveryWarmupTimeout.
+func waitForDeliveryLive(ctx context.Context, user *TestUser, channel string, logger zerolog.Logger) error {
+	warmupID := "warmup-" + uuid.NewString()
+	payload, _ := json.Marshal(map[string]any{"msg_id": warmupID}) // literal map of primitives cannot fail
+	publish := func() error {
+		if err := user.Client.Publish(channel, payload); err != nil {
+			return fmt.Errorf("publish warmup probe on %s: %w", channel, err)
+		}
+		return nil
+	}
+	return probeUntilLive(ctx, deliveryWarmupTimeout, deliveryWarmupInterval,
+		publish, func() bool { return user.HasReceived(warmupID) }, user.ClearReceived, logger)
+}
+
+// probeUntilLive is the transport-agnostic core of waitForDeliveryLive, split out so its retry /
+// timeout / reset contract is unit-testable without a live WebSocket (publish/received/reset are
+// injected). It publishes once, then on each interval checks for receipt (→ reset + return nil) or
+// republishes. Returns an error on timeout or ctx cancel, or if publish fails.
+func probeUntilLive(ctx context.Context, timeout, interval time.Duration, publish func() error, received func() bool, reset func(), logger zerolog.Logger) error {
+	if err := publish(); err != nil {
+		return err
+	}
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			return fmt.Errorf("delivery loop not live after %s (no warmup probe received)", timeout)
+		case <-ctx.Done():
+			return fmt.Errorf("delivery warmup canceled: %w", ctx.Err())
+		case <-ticker.C:
+			if received() {
+				reset()
+				logger.Debug().Msg("delivery loop live (warmup probe received)")
+				return nil
+			}
+			if err := publish(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // PubSubEngine coordinates publishers and subscribers for delivery verification.
 // Tracks message IDs (UUIDs) to verify that the right messages reach the right subscribers.
 type PubSubEngine struct {

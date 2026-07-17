@@ -1,14 +1,19 @@
 # =============================================================================
-# CI — Lint, Test, Helm Lint, kafka-ingest E2E
+# CI — Lint, Test, Helm Lint, E2E editions×backends grid
 # =============================================================================
-# Runs automatically on every push to main (post-merge verification, including
-# the kafka-ingest data-path round-trip), and manually via the GitHub Actions
-# UI ("Run workflow" button) or CLI: gh workflow run ci.yml --ref <branch>
+# Runs on every push to main (post-merge verification — including the smoke grid
+# cells + kafka-ingest + push data-path round-trips), nightly on a schedule (the
+# FULL grid), and manually via the GitHub Actions UI ("Run workflow" button) or
+# CLI: gh workflow run ci.yml --ref <branch>
 
 name: CI
 
 on:
   workflow_dispatch:
+  schedule:
+    # Nightly — runs the FULL editions×backends grid (all anchor cells). Pushes to
+    # main run only the smoke cells (see e2e-grid-setup).
+    - cron: "0 3 * * *"
   push:
     branches: [main]
 
@@ -161,21 +166,63 @@ jobs:
         run: task e2e:kafka-ingest
 
   # ---------------------------------------------------------------------------
-  # Validate battery E2E — all delivery paths + platform behavior
+  # E2E anti-vacuous guard fixtures — no Docker, ~2s
   # ---------------------------------------------------------------------------
-  # Boots an Enterprise-licensed DIRECT-mode stack (built from source, pro
-  # profile for the webhook worker) and runs 16 validate suites: WS pub-sub with scoping,
-  # SSE, REST publish, auth, channels, ordering, reconnect, rate limits,
-  # tenant isolation, provisioning CRUD, token revocation, edition limits,
-  # API-key auth, auth upgrade, and webhooks — deliberately covering the
-  # Community-default (direct backend) data path. Fail-closed: a suite fails
-  # the job on a non-pass report OR any skipped check (empty allow-list — a
-  # skip in CI means coverage silently vanished). kafka-ingest runs in its own
-  # kafka-mode job; push (Enterprise + MESSAGE_BACKEND=kafka) in e2e-push-validate.
-  e2e-validate-battery:
-    name: validate battery
+  # Fast fail-closed gate: runs the guard fixture tests (battery_guard_test.sh for the
+  # generic per-suite verdict, guard_test.sh for the push delivery guard) BEFORE any
+  # stack boots. A guard that silently drops an assertion is caught here, cheaply, so a
+  # regressed guard can never let a vacuous-green cell through.
+  e2e-guard-fixtures:
+    name: e2e guard fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout sukko
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Run guard fixture tests
+        run: |
+          bash taskfiles/e2e/battery_guard_test.sh
+          bash taskfiles/e2e/guard_test.sh
+
+  # ---------------------------------------------------------------------------
+  # Grid matrix setup — smoke on push, full grid on schedule/dispatch
+  # ---------------------------------------------------------------------------
+  # Emits the list of anchor cells to run. Push to main runs only the smoke cells
+  # (one per backend); the nightly schedule and manual dispatch run the full grid.
+  # Later specs add cells by editing ONE of these two lists.
+  e2e-grid-setup:
+    name: e2e grid setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      cells: ${{ steps.cells.outputs.cells }}
+    steps:
+      - id: cells
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo 'cells=["community-direct","pro-kafka"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'cells=["community-direct","pro-kafka","enterprise-kafka"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # E2E editions×backends grid — the anchor cells
+  # ---------------------------------------------------------------------------
+  # One job per cell (Community/direct, Pro/kafka, Enterprise/kafka), each booting a
+  # build-from-source stack via the single cell runner (task e2e:cell:<cell>) and running
+  # the validate battery hermetically with the anti-vacuous guard. fail-fast: false so one
+  # red cell does not cancel the others. This subsumes the former direct-mode validate
+  # battery job (now the Community/direct cell); kafka-ingest (kafka-ingest + rest-publish
+  # suites) and push (push suite) keep their own jobs below — they are not green-set cells.
+  e2e-grid:
+    name: "grid: ${{ matrix.cell }}"
+    needs: [e2e-guard-fixtures, e2e-grid-setup]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ${{ fromJSON(needs.e2e-grid-setup.outputs.cells) }}
     steps:
       - name: Checkout sukko
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -194,7 +241,7 @@ jobs:
           cache: true
 
       - name: Fail fast if Docker is unavailable
-        # This regression MUST fail (not silently skip) without Docker.
+        # A grid cell MUST fail (not silently skip) without Docker.
         run: docker version
 
       - name: Install Task
@@ -208,8 +255,8 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Run validate battery
-        run: task e2e:validate-battery
+      - name: Run grid cell
+        run: task e2e:cell:${{ matrix.cell }}
 
   # ---------------------------------------------------------------------------
   # Push (Web Push) delivery E2E — kafka-mode, Enterprise-licensed

@@ -1,10 +1,10 @@
-# E2E-only Compose override for the validate-battery run.
+# E2E-only Compose override for the DIRECT message backend.
 #
-# Applied ONLY by `task e2e:validate-battery`. Gives the tester the admin key so
-# it can drive provisioning (throwaway tenants, channel/routing rules).
-# KAFKA_BROKERS stays unset: the battery runs the DIRECT backend — deliberately
-# covering the Community-default data path — and the kafka-ingest + push suites
-# are covered by the kafka-mode job (push requires MESSAGE_BACKEND=kafka).
+# Applied by the E2E direct-backend cell (`task e2e:cell BACKEND=direct`, e.g. the
+# Community/direct anchor). Gives the tester the admin key so it can drive
+# provisioning (throwaway tenants, channel/routing rules). KAFKA_BROKERS stays
+# unset: the direct backend deliberately covers the Community-default data path;
+# the kafka-ingest + push suites are covered by the kafka-mode cells/jobs.
 #
 # The admin keypair (.admin.key) is generated per-run via `cmd/gen-admin-key`;
 # its public half is wired to provisioning as ADMIN_BOOTSTRAP_KEY. This
