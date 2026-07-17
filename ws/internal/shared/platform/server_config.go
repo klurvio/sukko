@@ -409,6 +409,11 @@ type ServerConfig struct {
 	KafkaBatchSize    int           `env:"KAFKA_BATCH_SIZE" envDefault:"50"`      // Maximum number of Kafka messages processed per consumer batch.
 	KafkaBatchTimeout time.Duration `env:"KAFKA_BATCH_TIMEOUT" envDefault:"10ms"` // Maximum time to wait to fill a batch before processing it.
 
+	// KafkaMetadataMinAge caps how quickly the producer refreshes topic metadata: a message published to a
+	// just-provisioned tenant topic cannot be produced until the client re-fetches metadata, so lower values
+	// shorten new-tenant produce latency at the cost of more metadata traffic. Set to 0 to use the franz-go default.
+	KafkaMetadataMinAge time.Duration `env:"KAFKA_METADATA_MIN_AGE" envDefault:"5s"` // Minimum interval before the Kafka producer refreshes topic metadata (lower = faster new-topic produce, more metadata traffic).
+
 	// Kafka consumer transport tuning
 	KafkaFetchMaxWait              time.Duration `env:"KAFKA_FETCH_MAX_WAIT" envDefault:"500ms"`              // Maximum time the Kafka broker waits before returning a fetch response, even if KAFKA_FETCH_MIN_BYTES has not been met. Lower values reduce latency; higher values improve throughput.
 	KafkaFetchMinBytes             int32         `env:"KAFKA_FETCH_MIN_BYTES" envDefault:"1"`                 // Minimum bytes a broker should accumulate before returning a fetch response.
@@ -933,6 +938,9 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.KafkaBatchTimeout <= 0 {
 		return fmt.Errorf("KAFKA_BATCH_TIMEOUT must be > 0, got %v", c.KafkaBatchTimeout)
+	}
+	if c.KafkaMetadataMinAge < 0 {
+		return fmt.Errorf("KAFKA_METADATA_MIN_AGE must be >= 0 (0 = library default), got %v", c.KafkaMetadataMinAge)
 	}
 	if c.KafkaFetchMaxWait <= 0 {
 		return fmt.Errorf("KAFKA_FETCH_MAX_WAIT must be > 0, got %v", c.KafkaFetchMaxWait)

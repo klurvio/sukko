@@ -233,6 +233,12 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if cfg.CommitOnRevokeTimeout <= 0 {
 		return nil, errors.New("CommitOnRevokeTimeout must be > 0")
 	}
+	// When batching is enabled (BatchSize > 1) the consume loop bounds each poll to BatchTimeout;
+	// a non-positive value would make the poll return instantly and busy-spin. Fail fast rather than
+	// silently substituting a default — KAFKA_BATCH_TIMEOUT's envDefault is the single source of truth (§I).
+	if cfg.BatchSize > 1 && cfg.BatchTimeout <= 0 {
+		return nil, errors.New("BatchTimeout must be > 0 when batching is enabled (BatchSize > 1)")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -294,7 +300,8 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
-	// Batching configuration (values provided by env-parsed config)
+	// Batching configuration (values provided by env-parsed config; BatchTimeout > 0 is validated
+	// above when batching is enabled).
 	batchSize := cfg.BatchSize
 	batchTimeout := cfg.BatchTimeout
 	batchEnabled := batchSize > 1
@@ -553,10 +560,49 @@ func (c *Consumer) consumeLoop() {
 		return
 	}
 
-	// Batching enabled: accumulate messages and flush periodically
+	// Batching enabled. A dedicated poller goroutine BLOCKS on PollFetches (letting each broker fetch
+	// run to completion — bounding the poll instead would cancel in-flight fetches before they return)
+	// and feeds raw records to this loop over a channel. This loop owns the batch + commit state and
+	// selects over {records, flush timer, ctx}, so the flush timer fires every batchTimeout — even on a
+	// quiet topic — and a partial batch (< batchSize) is delivered within batchTimeout rather than being
+	// stranded until the next record happens to arrive (Constitution §VII: the message pipeline MUST NOT
+	// stall; the earlier single-goroutine loop blocked in PollFetches so its flush timer never fired,
+	// stranding burst tails indefinitely). §VII also prefers this goroutine-owns-state + channel design
+	// over shared state. (The one exception to the batchTimeout flush cadence is an in-progress CPU
+	// emergency brake in prepareMessage, which intentionally blocks this loop as backpressure until CPU
+	// recovers — bounded, not a stall.)
+	recordCh := make(chan *kgo.Record, c.batchSize)
+
+	c.wg.Go(func() {
+		defer logging.RecoverPanic(*c.logger, "consumePoller", nil)
+		for {
+			fetches := c.client.PollFetches(c.ctx)
+			if c.ctx.Err() != nil {
+				return // shutdown: c.ctx canceled (fetches carries only the cancel error)
+			}
+			if errs := fetches.Errors(); len(errs) > 0 {
+				if paused := c.handleFetchErrors(errs); len(paused) > 0 {
+					c.deletedCounter.Add(float64(len(paused)))
+				}
+			}
+			stopped := false
+			fetches.EachRecord(func(record *kgo.Record) {
+				if stopped {
+					return
+				}
+				select {
+				case recordCh <- record:
+				case <-c.ctx.Done():
+					stopped = true
+				}
+			})
+			if stopped {
+				return
+			}
+		}
+	})
+
 	batch := make([]preparedMessage, 0, c.batchSize)
-	flushTimer := time.NewTimer(c.batchTimeout)
-	defer flushTimer.Stop()
 
 	flushBatch := func() {
 		if len(batch) == 0 {
@@ -584,50 +630,38 @@ func (c *Consumer) consumeLoop() {
 			}
 		}
 
-		// Clear batch
+		// Clear batch (reuse backing array)
 		batch = batch[:0]
-		flushTimer.Reset(c.batchTimeout)
 	}
+
+	flushTimer := time.NewTimer(c.batchTimeout)
+	defer flushTimer.Stop()
 
 	for {
 		select {
 		case <-c.ctx.Done():
-			// Flush remaining messages before exit
 			flushBatch()
 			return
 
 		case <-flushTimer.C:
-			// Timeout: flush accumulated batch
+			// Fires every batchTimeout regardless of traffic — resetting even on an empty flush keeps
+			// it firing, so an accumulated partial batch is never left waiting.
 			flushBatch()
+			flushTimer.Reset(c.batchTimeout)
 
-		default:
-			// Poll for messages
-			fetches := c.client.PollFetches(c.ctx)
-
-			// Check for errors
-			if errs := fetches.Errors(); len(errs) > 0 {
-				if paused := c.handleFetchErrors(errs); len(paused) > 0 {
-					c.deletedCounter.Add(float64(len(paused)))
+		case record := <-recordCh:
+			msg, ctxCanceled := c.prepareMessage(record)
+			if msg != nil {
+				batch = append(batch, *msg)
+				if len(batch) >= c.batchSize {
+					flushBatch() // full-batch flush; the timer keeps its own cadence (may fire on an empty batch — a no-op)
 				}
+			} else if !ctxCanceled {
+				// Deliberate drop (rate-limit, malformed, DLQ): mark so the offset is not
+				// re-delivered after rebalance. CPU-brake ctx cancel is not marked — the record
+				// must be re-delivered after rebalance.
+				c.committer.MarkCommitRecords(record)
 			}
-
-			// Accumulate records into batch
-			fetches.EachRecord(func(record *kgo.Record) {
-				msg, ctxCanceled := c.prepareMessage(record)
-				if msg != nil {
-					batch = append(batch, *msg)
-
-					// Flush if batch is full
-					if len(batch) >= c.batchSize {
-						flushBatch()
-					}
-				} else if !ctxCanceled {
-					// Deliberate drop (rate-limit, malformed, DLQ): mark so the offset
-					// is not re-delivered after rebalance. CPU-brake ctx cancel is not
-					// marked — the record must be re-delivered after rebalance.
-					c.committer.MarkCommitRecords(record)
-				}
-			})
 		}
 	}
 }

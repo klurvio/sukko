@@ -117,6 +117,9 @@ type Config struct {
 	KafkaBatchSize    int
 	KafkaBatchTimeout time.Duration
 
+	// Kafka producer tuning
+	KafkaMetadataMinAge time.Duration // 0 = franz-go default; lower shortens new-tenant produce latency (producer-scoped).
+
 	// Kafka consumer transport tuning
 	KafkaFetchMaxWait              time.Duration
 	KafkaFetchMinBytes             int32
@@ -237,6 +240,7 @@ func New(cfg Config) (*KafkaBackend, error) {
 	kb.producer, err = kafka.NewProducer(kafka.ProducerConfig{
 		Brokers:                    cfg.Brokers,
 		TopicNamespace:             topicNamespace,
+		MetadataMinAge:             cfg.KafkaMetadataMinAge,
 		Logger:                     &producerLogger,
 		SASL:                       saslConfig,
 		TLS:                        tlsConfig,
