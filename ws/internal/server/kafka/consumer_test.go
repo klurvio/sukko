@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/twmb/franz-go/pkg/kgo"
 
@@ -206,14 +207,73 @@ func TestConsumerConfig_BatchDefaults(t *testing.T) {
 		Topics:        []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
 	}
 
-	// Default BatchSize should be 0 (will be set to 50 in NewConsumer)
+	// Zero-value BatchSize means batching disabled (batchEnabled = BatchSize > 1).
+	// NewConsumer does NOT silently substitute a default — envDefault is the single
+	// source of truth for KAFKA_BATCH_SIZE (§I).
 	if cfg.BatchSize != 0 {
 		t.Errorf("Default BatchSize = %d, want 0", cfg.BatchSize)
 	}
 
-	// Default BatchTimeout should be 0 (will be set to 10ms in NewConsumer)
+	// Zero-value BatchTimeout is only valid while batching is disabled; NewConsumer rejects
+	// BatchSize > 1 with BatchTimeout <= 0 (see TestNewConsumer_BatchTimeoutValidation).
 	if cfg.BatchTimeout != 0 {
 		t.Errorf("Default BatchTimeout = %v, want 0", cfg.BatchTimeout)
+	}
+}
+
+// TestNewConsumer_BatchTimeoutValidation pins the batching-config contract added with the
+// poller/channel consume loop: a batched loop bounds its flush cadence with BatchTimeout, so a
+// non-positive timeout while batching is enabled (BatchSize > 1) MUST be rejected at
+// construction (fail fast, §I/§II) — while BatchSize <= 1 keeps a zero timeout valid because
+// batching is disabled and the timeout is unused. The sole production caller
+// (orchestration.MultiTenantConsumerPool) feeds ServerConfig-validated values
+// (KAFKA_BATCH_SIZE >= 1, KAFKA_BATCH_TIMEOUT > 0), so this validation is defense in depth,
+// not a caller-facing behavior change.
+func TestNewConsumer_BatchTimeoutValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		batchSize    int
+		batchTimeout time.Duration
+		wantErr      bool
+	}{
+		{name: "batching enabled, zero timeout rejected", batchSize: 50, batchTimeout: 0, wantErr: true},
+		{name: "batching enabled, negative timeout rejected", batchSize: 2, batchTimeout: -time.Millisecond, wantErr: true},
+		{name: "batching enabled, positive timeout accepted", batchSize: 50, batchTimeout: 10 * time.Millisecond, wantErr: false},
+		{name: "batching disabled (size 1), zero timeout accepted", batchSize: 1, batchTimeout: 0, wantErr: false},
+		{name: "batching disabled (size 0), zero timeout accepted", batchSize: 0, batchTimeout: 0, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger := zerolog.Nop()
+
+			cfg := ConsumerConfig{
+				Brokers:               []string{"localhost:9999"}, // fake — kgo connects lazily, no dial at construction
+				ConsumerGroup:         "test-group",
+				Topics:                []string{kafkashared.BuildTopicName("test", "sukko", "trade")},
+				Logger:                &logger,
+				Broadcast:             func(_ string, _ []byte, _ string, _ int32, _ int64) {},
+				ResourceGuard:         newMockResourceGuard(),
+				ConsumerType:          ConsumerTypeKindShared,
+				CommitOnRevokeTimeout: 5 * time.Second,
+				Registerer:            prometheus.NewRegistry(), // isolated — avoid promauto singleton pollution
+				BatchSize:             tt.batchSize,
+				BatchTimeout:          tt.batchTimeout,
+			}
+
+			consumer, err := NewConsumer(cfg)
+			if consumer != nil {
+				t.Cleanup(func() { _ = consumer.Stop() })
+			}
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewConsumer(BatchSize=%d, BatchTimeout=%v) error = %v, wantErr = %v",
+					tt.batchSize, tt.batchTimeout, err, tt.wantErr)
+			}
+		})
 	}
 }
 

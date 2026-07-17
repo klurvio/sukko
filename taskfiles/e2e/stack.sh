@@ -110,7 +110,9 @@ e2e_battery_verdict() {
   fi
   status=$(echo "$report" | jq -r '.status // "missing"')
   skips=$(echo "$report" | jq -r '[.checks[]? | select(.status=="skip") | .name] | join(",")')
-  fails=$(echo "$report" | jq -r '[.checks[]? | select(.status=="fail") | .name] | join(",")')
+  # Include each failed check's .error — the compose stack is torn down with -v, so this
+  # line is the only surviving evidence of WHY a check failed.
+  fails=$(echo "$report" | jq -r '[.checks[]? | select(.status=="fail") | .name + (if (.error // "") != "" then " (" + .error + ")" else "" end)] | join(", ")')
   if [ "$status" != "pass" ]; then
     echo "    $suite: $status (failed checks: ${fails:-<none listed>})" >&2
     return 1
@@ -179,11 +181,13 @@ push_validate_guard() {
     echo "FAIL: push-validate guard: report is not valid JSON" >&2
     return 1
   fi
-  echo "$report" | jq '{status, checks:[.checks[]?|{name,status}]}'
+  # Keep .error in the printed summary — dropping it makes a red run undiagnosable from CI
+  # logs alone (the stack is torn down with -v, so this line is the only surviving evidence).
+  echo "$report" | jq '{status, checks:[.checks[]? | {name,status} + (if (.error // "") != "" then {error:.error} else {} end)]}'
   status=$(echo "$report" | jq -r '.status // "missing"')
   delivery=$(echo "$report" | jq -r '.checks[]? | select(.name=="push delivery") | .status')
   skips=$(echo "$report" | jq -r '[.checks[]? | select(.status=="skip") | .name] | join(",")')
-  fails=$(echo "$report" | jq -r '[.checks[]? | select(.status=="fail") | .name] | join(",")')
+  fails=$(echo "$report" | jq -r '[.checks[]? | select(.status=="fail") | .name + (if (.error // "") != "" then " (" + .error + ")" else "" end)] | join(", ")')
   # (a) delivery present AND pass
   if [ "$delivery" != "pass" ]; then
     echo "FAIL: push-validate guard: 'push delivery' status=${delivery:-<absent>} (want pass)" >&2
