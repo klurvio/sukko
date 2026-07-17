@@ -96,8 +96,16 @@ func validatePubSub(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 		return []metrics.CheckResult{{Name: "subscribe userC", Status: "fail", Error: err.Error()}}, nil
 	}
 
-	// Allow subscriptions to propagate
-	time.Sleep(500 * time.Millisecond)
+	// Warm up the delivery loop before the scoping checks. A fixed sleep is a direct-mode
+	// assumption; in Kafka mode the ws-server consumer joins this freshly-provisioned tenant's topic
+	// at AtEnd only after a cold-start window, so early publishes are dropped. All test channels for
+	// this tenant route to one topic, so proving liveness on generalChannel covers every check below.
+	// (The scoping checks verify unique per-publish UUIDs, so a warmup straggler cannot corrupt them;
+	// clearAll resets trackers anyway.)
+	if err := waitForDeliveryLive(ctx, userA, generalChannel, logger); err != nil {
+		return []metrics.CheckResult{{Name: "delivery warmup", Status: "fail", Error: err.Error()}}, nil
+	}
+	clearAll(users)
 
 	var checks []metrics.CheckResult
 

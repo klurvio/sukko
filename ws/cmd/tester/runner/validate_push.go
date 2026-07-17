@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -19,6 +20,52 @@ import (
 
 // pushTestChannel is the channel pattern used by push validation (with tenant prefix).
 const pushTestChannel = "general.push-test"
+
+// Step-0 availability probe bounds. The probe is the run's FIRST gateway interaction and races
+// control-plane propagation of the just-created throwaway tenant: the gateway's tenant key
+// registry is fed by an async WatchKeys stream and its push-service gRPC channel connects
+// lazily, so the first call(s) can transiently fail (401 while the key delta is in flight,
+// 500 while the push conn establishes). Terminal statuses (200 pass, 403 edition skip,
+// 503 not-deployed skip) return immediately; everything else is retried until the deadline and
+// only then classified as a real failure. Mirrors waitForRoutable's bounded propagation retry.
+const (
+	pushAvailableTimeout  = 10 * time.Second
+	pushAvailableInterval = 250 * time.Millisecond
+)
+
+// pushProbeTerminal reports whether a VAPID-probe HTTP status is a terminal outcome for the
+// "push available" check (mapped by the caller: 200 pass, 403 skip, 503 skip). Anything else
+// (0 transport error, 401 propagation, other 5xx) is treated as transient and retried.
+func pushProbeTerminal(status int) bool {
+	return status == http.StatusOK || status == http.StatusForbidden || status == http.StatusServiceUnavailable
+}
+
+// waitForPushAvailable polls probe until it returns a terminal status (per pushProbeTerminal)
+// or timeout elapses, returning the last observed status and error for classification.
+func waitForPushAvailable(ctx context.Context, timeout, interval time.Duration, probe func(context.Context) (int, error)) (int, error) {
+	status, err := probe(ctx)
+	if pushProbeTerminal(status) {
+		return status, err
+	}
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return status, err
+		case <-deadline:
+			return status, err
+		case <-ticker.C:
+			status, err = probe(ctx)
+			if pushProbeTerminal(status) {
+				return status, err
+			}
+		}
+	}
+}
 
 func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	provClient := run.authResult.ProvClient
@@ -48,8 +95,11 @@ func validatePush(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]m
 		}
 	}()
 
-	// Step 0: Health probe — verify push infrastructure is available
-	vapidStatus, vapidErr := pushGetVAPIDKey(ctx, gwURL, token)
+	// Step 0: Health probe — verify push infrastructure is available. Retried (bounded) because
+	// this is the first gateway call against a tenant created milliseconds ago — see the
+	// pushAvailableTimeout comment for the propagation races this absorbs.
+	vapidStatus, vapidErr := waitForPushAvailable(ctx, pushAvailableTimeout, pushAvailableInterval,
+		func(ctx context.Context) (int, error) { return pushGetVAPIDKey(ctx, gwURL, token) })
 	if vapidErr != nil {
 		switch vapidStatus {
 		case 503:
