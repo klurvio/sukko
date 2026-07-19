@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -34,6 +35,38 @@ var testRoutingRules = []map[string]any{
 	{"pattern": "**", "topics": []string{routing.DefaultTopicSuffix}, "priority": routing.DefaultCatchAllPriority},
 }
 
+// isRoutingRulesEditionGated reports whether a SetRoutingRules error is the
+// provisioning RequireFeature gate (HTTP 403, code EDITION_LIMIT, message
+// "This feature requires <edition> edition or higher"). Matched narrowly on the
+// feature-gate message so the per-tenant rule COUNT limit — same EDITION_LIMIT
+// code, different message — is never mistaken for it.
+func isRoutingRulesEditionGated(err error) bool {
+	return err != nil &&
+		strings.Contains(err.Error(), "EDITION_LIMIT") &&
+		strings.Contains(err.Error(), "edition or higher")
+}
+
+// setupSuiteRoutingRules applies the catch-all test routing rules to the suite
+// tenant, tolerating the Pro edition gate on the routing-rules API: routing
+// rules only affect the Kafka message backend, which is itself Pro-gated. On a
+// Community stack the backend is therefore direct — publishes are never
+// topic-routed and the rules are unnecessary — so the feature-gate 403 means
+// "rules not needed here", not "setup broken". Every other failure is returned:
+// on the Kafka backend a missing catch-all rule silently drops every publish,
+// which would surface as opaque delivery failures in later checks.
+func setupSuiteRoutingRules(ctx context.Context, provClient *auth.ProvisioningClient, tenantID string, logger zerolog.Logger) error {
+	err := provClient.SetRoutingRules(ctx, tenantID, testRoutingRules)
+	if err == nil {
+		return nil
+	}
+	if isRoutingRulesEditionGated(err) {
+		logger.Info().Str("tenant", tenantID).
+			Msg("routing rules are edition-gated (Community): skipping — direct backend does not use routing rules")
+		return nil
+	}
+	return fmt.Errorf("suite routing rules: %w", err)
+}
+
 // Test user profiles for scoping checks.
 var testUserProfiles = []auth.MintOptions{
 	{Subject: "test-user-a", Groups: []string{"vip"}},
@@ -49,7 +82,7 @@ func validatePubSub(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 	if err := provClient.SetChannelRules(ctx, tenantID, testChannelRules); err != nil {
 		return []metrics.CheckResult{{Name: "setup channel rules", Status: "fail", Error: err.Error()}}, nil
 	}
-	if err := provClient.SetRoutingRules(ctx, tenantID, testRoutingRules); err != nil {
+	if err := setupSuiteRoutingRules(ctx, provClient, tenantID, logger); err != nil {
 		return []metrics.CheckResult{{Name: "setup routing rules", Status: "fail", Error: err.Error()}}, nil
 	}
 

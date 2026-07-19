@@ -28,8 +28,9 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 	sseChannel := tenantChannel(tenantID, validateSSEChannel)
 	token := run.authResult.TokenFunc(0)
 
-	// Step 0: Set routing rules and channel rules
-	if err := provClient.SetRoutingRules(ctx, tenantID, testRoutingRules); err != nil {
+	// Step 0: Set routing rules and channel rules (edition-gate tolerant — on a
+	// Community stack the backend is direct and routing rules are unnecessary).
+	if err := setupSuiteRoutingRules(ctx, provClient, tenantID, logger); err != nil {
 		return []metrics.CheckResult{{Name: "setup routing rules", Status: "fail", Error: err.Error()}}, nil
 	}
 	_ = provClient.SetChannelRules(ctx, tenantID, testChannelRules)

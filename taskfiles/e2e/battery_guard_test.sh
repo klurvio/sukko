@@ -63,6 +63,21 @@ run_case 1 "no-report" "$PROGRESS
 run_case 1 "invalid-json" "$PROGRESS
 {\"test_type\":\"validate\",\"suite\":\"channels\",\"status\":\"pass\",\"checks\":[ THIS IS NOT JSON"
 
+# 6. status="error" report (setup/dispatch failed before any check ran — e.g. auth setup):
+#    the cause lives in the top-level .errors array, NOT in .checks. The guard must fail AND
+#    surface that text — the stack is torn down with -v, so the verdict line is the only
+#    surviving evidence (this exact shape made run 29587714847 undiagnosable from CI logs).
+ERROR_STREAM="$PROGRESS
+{\"test_type\":\"validate\",\"suite\":\"channels\",\"status\":\"error\",\"errors\":[\"auth setup: create tenant: HTTP 403\"]}"
+run_case 1 "status-error" "$ERROR_STREAM"
+error_out=$(printf '%s\n' "$ERROR_STREAM" | e2e_battery_verdict "channels" 2>&1)
+if printf '%s' "$error_out" | grep -q "auth setup: create tenant: HTTP 403"; then
+  echo "ok   - status-error surfaces .errors text"
+else
+  echo "FAIL - status-error: verdict did not print .errors text: $error_out"
+  fails=$((fails + 1))
+fi
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "battery_guard_test: all cases passed ✓"

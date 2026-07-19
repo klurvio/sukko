@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -223,7 +224,19 @@ func (m *MockTenantStore) List(_ context.Context, opts provisioning.ListOptions)
 	return result[opts.Offset:end], total, nil
 }
 
-// UpdateStatus implements TenantStore.UpdateStatus for testing.
+// validStatusSources mirrors TenantRepository.UpdateStatus's per-target WHERE
+// guards. The mock MUST enforce the same transitions as the SQL: a permissive
+// mock let TestService_DeprovisionTenant_Force_Active pass while the real
+// repository rejected active→deleted (the force-delete tenant leak).
+var validStatusSources = map[provisioning.TenantStatus][]provisioning.TenantStatus{
+	provisioning.StatusSuspended:      {provisioning.StatusActive},
+	provisioning.StatusActive:         {provisioning.StatusSuspended},
+	provisioning.StatusDeprovisioning: {provisioning.StatusActive, provisioning.StatusSuspended},
+	provisioning.StatusDeleted:        {provisioning.StatusActive, provisioning.StatusSuspended, provisioning.StatusDeprovisioning},
+}
+
+// UpdateStatus implements TenantStore.UpdateStatus for testing, enforcing the
+// same status-transition guards as the real repository (see validStatusSources).
 func (m *MockTenantStore) UpdateStatus(_ context.Context, tenantID string, status provisioning.TenantStatus) error {
 	if m.UpdateStatusErr != nil {
 		return m.UpdateStatusErr
@@ -233,6 +246,10 @@ func (m *MockTenantStore) UpdateStatus(_ context.Context, tenantID string, statu
 	t, ok := m.byUUID[tenantID]
 	if !ok {
 		return provisioning.ErrTenantNotFound
+	}
+	// Disallowed transitions match 0 rows in SQL → the repository reports not-found.
+	if !slices.Contains(validStatusSources[status], t.Status) {
+		return fmt.Errorf("%w: %s", provisioning.ErrTenantNotFound, tenantID)
 	}
 	t.Status = status
 	t.UpdatedAt = time.Now()

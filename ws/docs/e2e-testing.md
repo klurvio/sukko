@@ -179,6 +179,13 @@ their own precise rules. When targeting a pre-provisioned deployment with a
 static tester token, ensure the target tenant has channel rules covering the
 suite channels or every subscribe will be filtered to an empty list.
 
+**Routing-rules setup is edition-gate tolerant:** delivery suites apply a
+catch-all routing rule at setup so publishes are topic-routed on the Kafka
+backend. The routing-rules API is Pro-gated, and the Kafka backend itself
+requires Pro — so on a Community (direct-backend) stack the suites treat the
+`403 EDITION_LIMIT` feature-gate response as "rules not needed" and proceed;
+any other routing-rules failure still fails the suite.
+
 ### 2.0 Automated battery — the editions×backends grid (CI)
 
 The confirmed-stable validate suites — `channels`, `pubsub` (WS delivery + scoping),

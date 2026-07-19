@@ -98,7 +98,7 @@ e2e_kafka_ready() {
 # silently vanished). Prints a one-line verdict. Kept stdin-driven so it is testable
 # with canned fixtures (battery_guard_test.sh) without booting a stack.
 e2e_battery_verdict() {
-  local suite="$1" report status skips fails
+  local suite="$1" report status skips fails errs
   report=$(grep '"test_type"' | tail -1)
   if [ -z "$report" ]; then
     echo "    $suite: NO REPORT (suite emitted no test_type report)" >&2
@@ -113,8 +113,11 @@ e2e_battery_verdict() {
   # Include each failed check's .error — the compose stack is torn down with -v, so this
   # line is the only surviving evidence of WHY a check failed.
   fails=$(echo "$report" | jq -r '[.checks[]? | select(.status=="fail") | .name + (if (.error // "") != "" then " (" + .error + ")" else "" end)] | join(", ")')
+  # status=="error" reports (setup/dispatch failure before any check ran) carry the cause
+  # in the top-level .errors array, not in .checks — print it or the run is undiagnosable.
+  errs=$(echo "$report" | jq -r '(.errors // []) | join("; ")')
   if [ "$status" != "pass" ]; then
-    echo "    $suite: $status (failed checks: ${fails:-<none listed>})" >&2
+    echo "    $suite: $status (failed checks: ${fails:-<none listed>}${errs:+; errors: $errs})" >&2
     return 1
   fi
   if [ -n "$skips" ]; then

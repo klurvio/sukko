@@ -400,10 +400,15 @@ func (r *TenantRepository) UpdateStatus(ctx context.Context, tenantID string, st
 		`
 		args = []any{tenantID, status, now}
 	case provisioning.StatusDeleted:
+		// Valid sources: active/suspended (force-delete — no grace period) and
+		// deprovisioning (grace-period sweeper + force-delete of a deprovisioning
+		// tenant). Only deleted→deleted is excluded: deleting an already-deleted
+		// tenant must stay a not-found error (idempotency is handled above this
+		// layer; a second delete would double-decrement the active-tenants gauge).
 		query = `
 			UPDATE tenants
 			SET status = $2, deleted_at = $3, updated_at = $3
-			WHERE id = $1 AND status = 'deprovisioning'
+			WHERE id = $1 AND status IN ('active', 'suspended', 'deprovisioning')
 		`
 		args = []any{tenantID, status, now}
 	default:
