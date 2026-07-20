@@ -20,8 +20,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// editionTestTenantPrefix is the recognizable prefix for test tenants (FR-006).
-const editionTestTenantPrefix = "_sukko_test_edition_"
+// editionTestTenantPrefix is the recognizable prefix for test tenants (FR-006). It MUST be a
+// valid tenant slug prefix — slugs match ^[a-z][a-z0-9-]{2,62}$ (lowercase, start with a
+// letter, hyphens only). An underscore-based prefix produces an invalid slug that provisioning
+// rejects (surfacing as HTTP 500 CREATE_FAILED, since ValidateSlug's error is not mapped to 400).
+const editionTestTenantPrefix = "edition-test-"
 
 // editionHTTPTimeout is the HTTP client timeout for /edition and provisioning API calls.
 const editionHTTPTimeout = 10 * time.Second
@@ -210,7 +213,7 @@ func checkTenantLimit(ctx context.Context, provClient *auth.ProvisioningClient, 
 	}
 
 	// Attempt one more — expect rejection
-	rejectID := editionTestTenantPrefix + "reject_" + uuid.New().String()[:8]
+	rejectID := editionTestTenantPrefix + "reject-" + uuid.New().String()[:8]
 	err := provClient.CreateTenant(ctx, rejectID, "Edition rejection test")
 	if err != nil {
 		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), errCodeEditionLimit) {

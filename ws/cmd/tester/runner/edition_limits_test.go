@@ -2,6 +2,7 @@ package runner
 
 import (
 	"net/http"
+	"regexp"
 	"testing"
 
 	"github.com/klurvio/sukko/cmd/tester/metrics"
@@ -106,6 +107,26 @@ func TestClassifyRoutingRules(t *testing.T) {
 				t.Errorf("classifyRoutingRules(%q, %d) status = %q, want %q (result: %+v)", tc.edition, tc.statusCode, got.Status, tc.wantStatus, got)
 			}
 		})
+	}
+}
+
+// TestEditionTestTenantSlugsAreValid guards against a regression where the test-tenant slug
+// prefix produces slugs that provisioning rejects. Tenant slugs must match
+// ^[a-z][a-z0-9-]{2,62}$ (see internal/provisioning/types.go); an underscore-based prefix
+// yielded an invalid slug that surfaced as HTTP 500 CREATE_FAILED and failed the edition-limits
+// grid cell. The uuid.New().String()[:8] suffix is always 8 lowercase-hex chars (no hyphen).
+func TestEditionTestTenantSlugsAreValid(t *testing.T) {
+	t.Parallel()
+	// Mirror provisioning's tenantSlugPattern.
+	slugRe := regexp.MustCompile(`^[a-z][a-z0-9-]{2,62}$`)
+	const sampleUUID8 = "550e8400" // representative uuid.New().String()[:8]
+	for _, slug := range []string{
+		editionTestTenantPrefix + sampleUUID8,             // shared/headroom test tenants
+		editionTestTenantPrefix + "reject-" + sampleUUID8, // boundary-rejection tenant
+	} {
+		if !slugRe.MatchString(slug) {
+			t.Errorf("test-tenant slug %q is not a valid tenant slug (must match %s)", slug, slugRe)
+		}
 	}
 }
 
