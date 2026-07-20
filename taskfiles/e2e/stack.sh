@@ -138,8 +138,15 @@ e2e_kafka_ready() {
 assert_boot_refused_verdict() {
   local exit_code="$1" logs gate="requires pro edition"
   logs=$(cat)
-  if ! [[ "$exit_code" =~ ^[0-9]+$ ]] || [ "$exit_code" -eq 0 ]; then
-    echo "FAIL: boot-refusal: ws-server exit code=${exit_code:-<none>} (want a non-zero exited container — the gate did not refuse boot)" >&2
+  # Fail closed unless exit_code is a non-zero integer. POSIX `case` (not [[ =~ ]]) so the
+  # check is portable across the Task runner's shell interpreter as well as bash.
+  case "$exit_code" in
+    '' | *[!0-9]*) # empty or non-numeric — container state could not be read
+      echo "FAIL: boot-refusal: ws-server exit code=${exit_code:-<none>} (want a non-zero exited container — the gate did not refuse boot)" >&2
+      return 1 ;;
+  esac
+  if [ "$exit_code" -eq 0 ]; then
+    echo "FAIL: boot-refusal: ws-server exit code=0 (want a non-zero exited container — the gate did not refuse boot)" >&2
     return 1
   fi
   if ! printf '%s' "$logs" | grep -q "$gate"; then
@@ -159,16 +166,15 @@ assert_boot_refused_verdict() {
 e2e_assert_boot_refused() {
   local edition="$1" backend="$2" admin_key_path="$3" expiry="$4"
   shift 4
-  local rc=0 cid exit_code="" logs had_errexit=0
+  local rc=0 cid exit_code="" logs
   echo "=== Boot-refusal cell: expect $edition/$backend to REFUSE startup ===" >&2
-  # Disable errexit around the boot so its non-zero `up --wait` does not abort the shell;
-  # restore the prior state (do not force -e on if the caller had it off).
-  case $- in *e*) had_errexit=1 ;; esac
-  set +e
+  # Capture the boot's exit WITHOUT aborting: `|| rc=$?` suppresses errexit for the tested
+  # command (and inside the function it invokes) — no global `set +e`/`set -e` toggle, and no
+  # `$-` inspection (the Task runner's shell interpreter does not expose `$-`, and reading it
+  # under `set -u` aborts with "-: unbound variable"). Cap the wait so a never-healthy
+  # dependency (ws-gateway waits on ws-server health) cannot stretch the job.
   E2E_WAIT_TIMEOUT="${E2E_REFUSAL_WAIT_TIMEOUT:-120}" \
-    e2e_boot_cell "$edition" "$backend" "$admin_key_path" "$expiry" "$@"
-  rc=$?
-  [ "$had_errexit" -eq 1 ] && set -e
+    e2e_boot_cell "$edition" "$backend" "$admin_key_path" "$expiry" "$@" || rc=$?
   if [ "$rc" -eq 0 ]; then
     echo "FAIL: boot-refusal: stack came up (exit 0) — the edition gate did NOT refuse boot" >&2
     return 1
