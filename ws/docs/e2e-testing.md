@@ -195,36 +195,65 @@ build-from-source stack for a specific `(edition, backend)` via the single cell 
 `task e2e:cell EDITION=<…> BACKEND=<…> SUITES="<…>"` (helpers in `taskfiles/e2e/stack.sh`).
 Named anchor cells wrap the runner with their suite sets:
 
-| Cell (`task e2e:cell:<name>`) | Edition | Backend | Suites |
-|---|---|---|---|
-| `community-direct` | Community (no license) | direct | `channels pubsub ordering reconnect auth` |
-| `pro-kafka` | Pro | kafka | `channels pubsub ordering reconnect sse auth` |
-| `enterprise-kafka` | Enterprise | kafka | `channels pubsub ordering reconnect sse auth` |
+| Cell (`task e2e:cell:<name>`) | Edition | Backend | Type | Suites / assertion |
+|---|---|---|---|---|
+| `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits` |
+| `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits` |
+| `enterprise-direct` | Enterprise | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits` |
+| `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth` |
+| `enterprise-kafka` | Enterprise | kafka | positive | `channels pubsub ordering reconnect sse auth` |
+| `community-kafka-refused` | Community (no license) | kafka | **negative** | boot MUST fail: ws-server exits non-zero with the kafka edition-gate error |
+| `expired-direct` | Pro, expired (`-1d`) → Community | direct | degradation | gate `edition=community`+`expired=true`; suite `edition-limits` |
 
-Every backend (direct, kafka) and every edition (Community, Pro, Enterprise) is covered
-by at least one cell. **`sse` is Pro-gated**, so it is omitted from the Community/direct
-cell (where the feature gate would reject the SSE connect) and covered on the kafka cells
-instead — no SSE coverage is lost across the grid. `task e2e:validate-battery` remains as
-an alias for the `community-direct` cell.
+Every edition×backend combination is accounted for: covered by a positive cell,
+negative-tested (`community-kafka-refused` — `MESSAGE_BACKEND=kafka` is Pro-gated, so a
+Community stack must refuse to boot), or degradation-tested (`expired-direct` — an expired
+Pro license degrades to Community and its limits are enforced). Expired×kafka is not a
+cell: a degraded-Community stack on kafka is mechanically identical to
+`community-kafka-refused`. **`sse` is Pro-gated**, so it is omitted from the
+Community/direct cell (where the feature gate rejects the SSE connect) and covered on every
+paid cell — including `pro-direct`/`enterprise-direct`, which restore `sse`-on-direct
+coverage. `task e2e:validate-battery` remains an alias for the `community-direct` cell.
 
-**CI cadence:** a **push to `main`** runs only the **smoke cells** (`community-direct` +
-`pro-kafka` — one per backend) as the `e2e-grid` matrix; the **nightly schedule** and
-**manual `workflow_dispatch`** run the **full grid** (all three cells). The cell list is
-computed by the `e2e-grid-setup` job — later specs add cells by editing that list plus a
-named cell task. The `e2e-guard-fixtures` job runs the anti-vacuous guard fixture tests
-(no Docker, ~2s) first, so a regressed guard fails fast before any stack boots.
-`kafka-ingest` (kafka-ingest + rest-publish suites) and `push` keep their own jobs — they
-are not green-set grid cells.
+**Negative cell (`community-kafka-refused`).** Instead of running suites, it asserts the
+stack REFUSES to boot for the right reason: `e2e_assert_boot_refused` reuses the boot path
+with a capped `--wait`, requires the `up` to fail, then — before teardown — inspects the
+**ws-server** container's exit code and logs. It passes only if ws-server exited non-zero
+AND its logs contain the edition-gate substring `requires pro edition`. A non-zero boot
+alone (a build error, a different service crash, a `--wait` timeout) is NOT a pass — the
+verdict is the pure, fixture-tested `assert_boot_refused_verdict`.
 
-**Fail-closed contract:** a suite fails its cell on a non-`pass` report **or any skipped
-check**. The skip allow-list is **empty by design** — in a fully-provisioned stack no
-suite has a legitimate reason to skip, and a skip in CI means coverage silently vanished.
-All suites run even after a failure; the cell reports every failed suite and exits
-non-zero at the end. The generic guard is `e2e_battery_verdict` (fixture-tested by
+**Degradation cell (`expired-direct`).** Mints a Pro token already expired by `-1d`; the
+readiness gate asserts `/edition` reports `edition=community` AND `expired=true` before any
+suite runs. Its `edition-limits` run then proves the downgraded Community limits are
+actually enforced — a `REQUIRE_PASS` input forces the Community-only `tenant limit
+rejection` check to be present-and-`pass` (that check is legitimately absent on the
+unlimited Enterprise path, so it cannot live in the shared verdict).
+
+**CI cadence:** a **push to `main`** runs the **smoke cells** — `community-direct` +
+`pro-kafka` (one positive cell per backend) + the cheap `community-kafka-refused` negative
+cell — as the `e2e-grid` matrix; the **nightly schedule** and **manual
+`workflow_dispatch`** run the **full grid** (all seven cells). The cell list is computed by
+the `e2e-grid-setup` job — later specs add cells by editing that list plus a named cell
+task. The `e2e-guard-fixtures` job runs the anti-vacuous guard fixture tests (no Docker,
+~2s) first, so a regressed guard fails fast before any stack boots. `kafka-ingest`
+(kafka-ingest + rest-publish suites) and `push` keep their own jobs — they are not
+green-set grid cells.
+
+**Fail-closed contract:** a suite fails its cell on a non-`pass` report, any `fail`/`error`
+check, or **any skipped check not declared in the cell's allow-list**. The skip allow-list
+is a per-cell, per-suite `<suite>:<check>` set (default **empty**) — the only declared skip
+today is `edition-limits:connection limit rejection` (the connection-boundary sub-check
+honestly skips because every edition's connection limit exceeds the 100-connection test
+cap). A skip that is not declared, or a name declared for a different suite, still reds the
+cell. `REQUIRE_PASS` is the symmetric guard (checks that MUST be present-and-`pass`). All
+suites run even after a failure; the cell reports every failed suite and exits non-zero at
+the end. The generic guard is `e2e_battery_verdict` and the negative-cell guard is
+`assert_boot_refused_verdict` (both fixture-tested by
 `taskfiles/e2e/battery_guard_test.sh`).
 
 **Not yet in the grid (tracked for triage):** `rest-publish`, `tenant-isolation`,
-`token-revocation`, `edition-limits`, `api-key`, `upgrade`, `provisioning`, `ratelimit` —
+`token-revocation`, `api-key`, `upgrade`, `provisioning`, `ratelimit` —
 each surfaced a real first-contact finding when first run against a live gateway (see the
 validate-battery backlog issue). `kafka-ingest` runs in its own kafka-mode job and `push` in
 the `e2e-push-validate` job (Enterprise + `MESSAGE_BACKEND=kafka`, §1.3); `webhooks` is
@@ -475,11 +504,33 @@ Suite: token-revocation  Status: error
 sukko test validate --suite edition-limits
 ```
 
-Validates edition boundary limits: max connections per tenant, max topics per
-tenant broadcast. Confirms limits are enforced and the correct HTTP 429 / close code
-is returned.
+Validates that the edition's resource boundaries are actually enforced. It reads the live
+limits/usage from provisioning `/edition` (tenants, routing-rule count) and the gateway
+`/edition` (connections, shards), then asserts each boundary. On an all-zero (unlimited)
+Enterprise license each boundary early-returns an "unlimited" pass. The two feature gates
+(SSE, REST publish) are asserted on every edition: 403 on Community, 200 on Pro/Enterprise.
 
-> Note: `MaxTopicsPerTenant` is NOT tested by this suite.
+**Per-edition routing-rules branch.** The routing-rules API is Pro-gated wholesale
+(`ChannelTopicRouting`), so the check discriminates on **HTTP status + error code**, not on
+the response message:
+
+- **Community** — every routing-rules `PUT` is rejected by the feature-gate middleware with
+  **403 `EDITION_LIMIT`**; the suite asserts the API *is* feature-gated (there is no
+  reachable "within limit" success on Community).
+- **Pro / Enterprise-with-feature** — the request reaches the count validator: the suite
+  asserts `MaxRoutingRulesPerTenant` rules are accepted (200) and one more is rejected with
+  **400 `TOO_MANY_ROUTING_RULES`**. The boundary is read dynamically from `/edition`, never
+  hardcoded.
+
+**Capped connection boundary.** The `connections within limit` check opens up to
+`maxTestConnections` (100) WebSocket connections. Because every edition's connection limit
+exceeds that cap (Community 500, Pro 10000), the *rejection* sub-check honestly reports a
+`skip` under the name `connection limit rejection` — the grid tolerates exactly this one
+declared skip (see §2.0). The `shard count` check reads shard usage from the gateway
+`/edition` (relayed from ws-server) and passes deterministically on the compose stack.
+
+> Note: `MaxTopicsPerTenant` is NOT tested by this suite. The suite creates and deletes
+> throwaway tenants and routing rules via the admin-authenticated provisioning client.
 
 **Minimum edition**: Community  
 **Admin key**: not required

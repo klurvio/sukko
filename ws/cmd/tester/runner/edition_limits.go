@@ -15,6 +15,7 @@ import (
 	"github.com/klurvio/sukko/cmd/tester/restpublish"
 	testersse "github.com/klurvio/sukko/cmd/tester/sse"
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
+	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/rs/zerolog"
 )
@@ -24,6 +25,23 @@ const editionTestTenantPrefix = "_sukko_test_edition_"
 
 // editionHTTPTimeout is the HTTP client timeout for /edition and provisioning API calls.
 const editionHTTPTimeout = 10 * time.Second
+
+// Provisioning API error codes, mirrored here because they are unexported in
+// internal/provisioning/api. The tester matches them in the response body (embedded in
+// the error text by SetRoutingRulesRaw's readError) to discriminate the two DISTINCT
+// routing-rules rejections: the feature gate (403 EDITION_LIMIT, from the RequireFeature
+// middleware) versus the count limit (400 TOO_MANY_ROUTING_RULES, from ReplaceRoutingRules).
+const (
+	errCodeEditionLimit        = "EDITION_LIMIT"          // feature/resource gate (403)
+	errCodeTooManyRoutingRules = "TOO_MANY_ROUTING_RULES" // routing-rule count limit (400)
+)
+
+// ConnLimitRejectionCheckName is the check name emitted by the connection-boundary
+// sub-check. When the license headroom exceeds maxTestConnections the sub-check honestly
+// reports a skip under this name; the e2e skip allow-list (taskfiles/e2e.yml) declares it
+// as edition-limits:<this value>. Exported and asserted by a bash grep + a Go test so the
+// cross-file coupling has a binding it cannot silently drift from (FR-016).
+const ConnLimitRejectionCheckName = "connection limit rejection"
 
 // editionInfo holds parsed data from provisioning and gateway /edition endpoints.
 type editionInfo struct {
@@ -195,7 +213,7 @@ func checkTenantLimit(ctx context.Context, provClient *auth.ProvisioningClient, 
 	rejectID := editionTestTenantPrefix + "reject_" + uuid.New().String()[:8]
 	err := provClient.CreateTenant(ctx, rejectID, "Edition rejection test")
 	if err != nil {
-		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "EDITION_LIMIT") {
+		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), errCodeEditionLimit) {
 			checks = append(checks, metrics.CheckResult{
 				Name: "tenant limit rejection", Status: "pass",
 				Latency: fmt.Sprintf("correctly rejected at %d/%d", maxTenants, maxTenants),
@@ -221,55 +239,91 @@ func checkTenantLimit(ctx context.Context, provClient *auth.ProvisioningClient, 
 func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningClient, tenantID string, info *editionInfo, logger zerolog.Logger) []metrics.CheckResult {
 	maxRules := info.Limits.MaxRoutingRulesPerTenant
 	if maxRules == 0 {
-		return []metrics.CheckResult{{Name: "routing rules limit", Status: "pass", Latency: "unlimited"}}
+		return []metrics.CheckResult{{Name: "routing rules limit", Status: metrics.CheckStatusPass, Latency: "unlimited"}}
 	}
 
 	defer func() {
-		// Clean up rules on shared tenant
+		// Clean up rules on shared tenant (not-found is expected when the API is feature-gated).
 		if err := provClient.DeleteRoutingRules(ctx, tenantID); err != nil {
 			logger.Debug().Err(err).Str(logging.LogKeyTenantSlug, tenantID).
 				Msg("Routing rules cleanup (not-found is expected)")
 		}
 	}()
 
+	// Community: the routing-rules API is Pro-gated wholesale (ChannelTopicRouting), so every
+	// request is rejected by the RequireFeature middleware (403 EDITION_LIMIT) before the count
+	// validator runs. There is no reachable "within limit" success — asserting 200 here (the
+	// pre-fix behavior) always failed on Community. Assert the feature gate instead.
+	if info.Edition == string(license.Community) {
+		status, err := setTestRoutingRulesViaClient(ctx, provClient, tenantID, 1)
+		return []metrics.CheckResult{classifyRoutingRules(info.Edition, status, errText(err))}
+	}
+
+	// Editions WITH the feature: the count boundary is real — maxRules accepted (200),
+	// maxRules+1 rejected by the count validator (400 TOO_MANY_ROUTING_RULES).
 	var checks []metrics.CheckResult
 
-	// Set rules at limit — use provClient which has admin JWT auth
-	statusCode, err := setTestRoutingRulesViaClient(ctx, provClient, tenantID, maxRules)
-	if err != nil {
-		return []metrics.CheckResult{{
-			Name: "routing rules within limit", Status: "fail",
-			Error: fmt.Sprintf("failed to set %d rules: %v", maxRules, err),
-		}}
-	}
-	if statusCode == http.StatusOK {
+	status, err := setTestRoutingRulesViaClient(ctx, provClient, tenantID, maxRules)
+	if err == nil && status == http.StatusOK {
 		checks = append(checks, metrics.CheckResult{
-			Name: "routing rules within limit", Status: "pass",
+			Name: "routing rules within limit", Status: metrics.CheckStatusPass,
 			Latency: fmt.Sprintf("set %d rules", maxRules),
 		})
 	} else {
 		checks = append(checks, metrics.CheckResult{
-			Name: "routing rules within limit", Status: "fail",
-			Error: fmt.Sprintf("expected 200, got %d", statusCode),
+			Name: "routing rules within limit", Status: metrics.CheckStatusFail,
+			Error: fmt.Sprintf("expected 200 for %d rules, got status=%d err=%v", maxRules, status, err),
 		})
 	}
 
-	// Attempt limit+1 — expect rejection
-	statusCode, err = setTestRoutingRulesViaClient(ctx, provClient, tenantID, maxRules+1)
-	rejected := statusCode == http.StatusForbidden || (err != nil && strings.Contains(err.Error(), "403"))
-	if rejected {
-		checks = append(checks, metrics.CheckResult{
-			Name: "routing rules limit rejection", Status: "pass",
-			Latency: fmt.Sprintf("correctly rejected %d rules (max %d)", maxRules+1, maxRules),
-		})
-	} else {
-		checks = append(checks, metrics.CheckResult{
-			Name: "routing rules limit rejection", Status: "fail",
-			Error: fmt.Sprintf("expected 403, got status=%d err=%v", statusCode, err),
-		})
-	}
+	status, err = setTestRoutingRulesViaClient(ctx, provClient, tenantID, maxRules+1)
+	checks = append(checks, classifyRoutingRules(info.Edition, status, errText(err)))
 
 	return checks
+}
+
+// classifyRoutingRules classifies a routing-rules PUT response for the given edition,
+// discriminating the two DISTINCT rejections on HTTP status + error code (never message
+// substrings, which are not a stable contract). Community's routing-rules API is Pro-gated,
+// so the rejection it must observe is the feature gate (403 EDITION_LIMIT); editions that
+// have the feature reach ReplaceRoutingRules, whose count validator rejects an over-count
+// request with 400 TOO_MANY_ROUTING_RULES. The status+code split is what keeps a count
+// rejection from being read as a feature gate, and a feature-gate 403 on a paid edition from
+// passing as a count-limit assertion. errText carries the response body (embedded by
+// SetRoutingRulesRaw's readError), which contains the `code` field.
+func classifyRoutingRules(edition string, statusCode int, errBody string) metrics.CheckResult {
+	if edition == string(license.Community) {
+		if statusCode == http.StatusForbidden && strings.Contains(errBody, errCodeEditionLimit) {
+			return metrics.CheckResult{
+				Name: "routing rules feature gate", Status: metrics.CheckStatusPass,
+				Latency: "community: routing-rules API correctly feature-gated (403 " + errCodeEditionLimit + ")",
+			}
+		}
+		return metrics.CheckResult{
+			Name: "routing rules feature gate", Status: metrics.CheckStatusFail,
+			Error: fmt.Sprintf("community: expected 403/%s (feature gate), got status=%d err=%q", errCodeEditionLimit, statusCode, errBody),
+		}
+	}
+
+	if statusCode == http.StatusBadRequest && strings.Contains(errBody, errCodeTooManyRoutingRules) {
+		return metrics.CheckResult{
+			Name: "routing rules limit rejection", Status: metrics.CheckStatusPass,
+			Latency: fmt.Sprintf("%s: count limit correctly enforced (400 %s)", edition, errCodeTooManyRoutingRules),
+		}
+	}
+	return metrics.CheckResult{
+		Name: "routing rules limit rejection", Status: metrics.CheckStatusFail,
+		Error: fmt.Sprintf("%s: expected 400/%s (count limit), got status=%d err=%q", edition, errCodeTooManyRoutingRules, statusCode, errBody),
+	}
+}
+
+// errText returns the error's message, or "" for nil — feeds the routing-rules classifier
+// the response body that SetRoutingRulesRaw embeds in its error.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 const maxTestConnections = 100 // cap to avoid resource exhaustion
@@ -313,7 +367,7 @@ func checkConnectionLimit(ctx context.Context, gwURL string, tokenFunc func(int)
 	// If headroom was capped, note partial test
 	if maxConns-currentConns > maxTestConnections {
 		checks = append(checks, metrics.CheckResult{
-			Name: "connection limit rejection", Status: "skip",
+			Name: ConnLimitRejectionCheckName, Status: metrics.CheckStatusSkip,
 			Latency: fmt.Sprintf("partial check — headroom %d too large (capped at %d)", maxConns-currentConns, maxTestConnections),
 		})
 		return checks
@@ -327,13 +381,13 @@ func checkConnectionLimit(ctx context.Context, gwURL string, tokenFunc func(int)
 	})
 	if err != nil {
 		checks = append(checks, metrics.CheckResult{
-			Name: "connection limit rejection", Status: "pass",
+			Name: ConnLimitRejectionCheckName, Status: metrics.CheckStatusPass,
 			Latency: fmt.Sprintf("correctly rejected at %d connections", maxConns),
 		})
 	} else {
 		_ = extraClient.Close() // clean up unexpected connection
 		checks = append(checks, metrics.CheckResult{
-			Name: "connection limit rejection", Status: "fail",
+			Name: ConnLimitRejectionCheckName, Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("connection accepted beyond limit (%d)", maxConns),
 		})
 	}
@@ -376,28 +430,28 @@ func checkSSEFeatureGate(ctx context.Context, gwURL, token, edition string, logg
 		Logger:     logger,
 	})
 
-	if edition == "community" {
+	if edition == string(license.Community) {
 		// Expect 403 EDITION_LIMIT
 		if statusCode == http.StatusForbidden {
-			return metrics.CheckResult{Name: "sse feature gate", Status: "pass", Latency: "community: correctly blocked (403)"}
+			return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusPass, Latency: "community: correctly blocked (403)"}
 		}
 		if client != nil {
 			_ = client.Close()
-			return metrics.CheckResult{Name: "sse feature gate", Status: "fail", Error: "expected 403, got 200 (connection succeeded)"}
+			return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusFail, Error: "expected 403, got 200 (connection succeeded)"}
 		}
 		errMsg := fmt.Sprintf("expected 403, got %d", statusCode)
 		if err != nil {
 			errMsg = fmt.Sprintf("expected 403: %v", err)
 		}
-		return metrics.CheckResult{Name: "sse feature gate", Status: "fail", Error: errMsg}
+		return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusFail, Error: errMsg}
 	}
 
 	// Pro/Enterprise — expect success
 	if err != nil {
-		return metrics.CheckResult{Name: "sse feature gate", Status: "fail", Error: fmt.Sprintf("expected 200: %v", err)}
+		return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("expected 200: %v", err)}
 	}
 	_ = client.Close()
-	return metrics.CheckResult{Name: "sse feature gate", Status: "pass", Latency: edition + ": accessible (200)"}
+	return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusPass, Latency: edition + ": accessible (200)"}
 }
 
 func checkRESTPublishFeatureGate(ctx context.Context, gwURL, token, edition string) metrics.CheckResult {
@@ -406,21 +460,21 @@ func checkRESTPublishFeatureGate(ctx context.Context, gwURL, token, edition stri
 	statusCode, _, err := client.PublishRaw(ctx, body, restpublish.AuthConfig{Token: token}, "application/json")
 
 	if err != nil {
-		return metrics.CheckResult{Name: "rest publish feature gate", Status: "fail", Error: fmt.Sprintf("request failed: %v", err)}
+		return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("request failed: %v", err)}
 	}
 
-	if edition == "community" {
+	if edition == string(license.Community) {
 		if statusCode == http.StatusForbidden {
-			return metrics.CheckResult{Name: "rest publish feature gate", Status: "pass", Latency: "community: correctly blocked (403)"}
+			return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusPass, Latency: "community: correctly blocked (403)"}
 		}
-		return metrics.CheckResult{Name: "rest publish feature gate", Status: "fail", Error: fmt.Sprintf("expected 403, got %d", statusCode)}
+		return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("expected 403, got %d", statusCode)}
 	}
 
 	// Pro/Enterprise — expect success
 	if statusCode == http.StatusOK {
-		return metrics.CheckResult{Name: "rest publish feature gate", Status: "pass", Latency: edition + ": accessible (200)"}
+		return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusPass, Latency: edition + ": accessible (200)"}
 	}
-	return metrics.CheckResult{Name: "rest publish feature gate", Status: "fail", Error: fmt.Sprintf("expected 200, got %d", statusCode)}
+	return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("expected 200, got %d", statusCode)}
 }
 
 func isUnlimited(info *editionInfo) bool {
