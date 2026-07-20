@@ -203,12 +203,12 @@ tasks:
         # Shared boot path (§X single source of truth): mint Pro token, gen admin key, boot the
         # kafka-backend stack. All setup that `up` depends on runs inside e2e_boot_cell so the
         # values reach the boot env.
-        e2e_boot_cell pro kafka "$(pwd)/{{.ADMIN_KEY_FILE}}" {{.COMPOSE}}
+        e2e_boot_cell pro kafka "$(pwd)/{{.ADMIN_KEY_FILE}}" +1y {{.COMPOSE}}
       - |
         set -eu
         . taskfiles/e2e/stack.sh
         echo "=== Readiness gate ==="
-        e2e_readiness_gate {{.PROVISIONING_URL}} pro
+        e2e_readiness_gate {{.PROVISIONING_URL}} pro false
         e2e_kafka_ready {{.COMPOSE}}
       - |
         set -eu
@@ -287,13 +287,13 @@ tasks:
         # Shared boot path (§X single source of truth): mint Enterprise token, gen admin key, boot
         # the kafka-backend Enterprise stack (the push-validate override adds --profile enterprise
         # so push-service builds/starts here too).
-        e2e_boot_cell enterprise kafka "$(pwd)/{{.ADMIN_KEY_FILE}}" {{.COMPOSE}}
+        e2e_boot_cell enterprise kafka "$(pwd)/{{.ADMIN_KEY_FILE}}" +1y {{.COMPOSE}}
       - |
         set -eu
         . taskfiles/e2e/stack.sh
         echo "=== Readiness gate ==="
         {{.COMPOSE}} exec -T redpanda rpk cluster health
-        e2e_readiness_gate {{.PROVISIONING_URL}} enterprise
+        e2e_readiness_gate {{.PROVISIONING_URL}} enterprise false
         # push-service /ready is 503 until the Enterprise license arrives over WatchLicense —
         # poll it (NOT /health) so the suite doesn't start before the edition syncs.
         echo "=== Poll push-service /ready ({{.PUSH_READY_URL}}) ==="
@@ -343,6 +343,14 @@ tasks:
       ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
       PROVISIONING_URL: http://localhost:18080
       TESTER_TOKEN: sukko-dev-token
+      # Optional per-cell inputs (all explicit, single-source defaults — §I/§XV). No mode is
+      # inferred: EXPECT_EXPIRED is never derived from the sign of EXPIRY, EXPECT_EDITION is
+      # never re-derived from EDITION at the call site.
+      EXPIRY: '{{.EXPIRY | default "+1y"}}'                 # license expiry passed to gentoken --expires (-1d degrades the expired cell)
+      EXPECT_EDITION: '{{.EXPECT_EDITION | default .EDITION}}' # edition the readiness gate asserts (expired cell mints pro, expects community)
+      EXPECT_EXPIRED: '{{.EXPECT_EXPIRED | default "false"}}'  # .expired flag the readiness gate asserts (true only on the expired cell)
+      ALLOWED_SKIPS: '{{.ALLOWED_SKIPS | default ""}}'        # ;-separated <suite>:<check> skips tolerated by the anti-vacuous verdict
+      REQUIRE_PASS: '{{.REQUIRE_PASS | default ""}}'          # ;-separated <suite>:<check> checks required present-and-pass
     cmds:
       # Teardown runs even on failure (Taskfile defer, LIFO): stack down, then remove the key.
       - defer: "{{.COMPOSE}} down -v"
@@ -350,13 +358,13 @@ tasks:
       - |
         set -eu
         . taskfiles/e2e/stack.sh
-        echo "=== Cell: edition={{.EDITION}} backend={{.BACKEND}} suites='{{.SUITES}}' ==="
-        e2e_boot_cell {{.EDITION}} {{.BACKEND}} "$(pwd)/{{.ADMIN_KEY_FILE}}" {{.COMPOSE}}
+        echo "=== Cell: edition={{.EDITION}} backend={{.BACKEND}} suites='{{.SUITES}}' expiry={{.EXPIRY}} ==="
+        e2e_boot_cell {{.EDITION}} {{.BACKEND}} "$(pwd)/{{.ADMIN_KEY_FILE}}" {{.EXPIRY}} {{.COMPOSE}}
       - |
         set -eu
         . taskfiles/e2e/stack.sh
-        echo "=== Readiness gate ==="
-        e2e_readiness_gate {{.PROVISIONING_URL}} {{.EDITION}}
+        echo "=== Readiness gate (expect edition={{.EXPECT_EDITION}} expired={{.EXPECT_EXPIRED}}) ==="
+        e2e_readiness_gate {{.PROVISIONING_URL}} {{.EXPECT_EDITION}} {{.EXPECT_EXPIRED}}
         if [ "{{.BACKEND}}" = "kafka" ]; then
           e2e_kafka_ready {{.COMPOSE}}
         fi
@@ -364,17 +372,23 @@ tasks:
         set -eu
         . taskfiles/e2e/stack.sh
         echo "=== Run validate battery ==="
-        e2e_run_battery {{.TESTER_TOKEN}} {{.SUITES}}
+        e2e_run_battery {{.TESTER_TOKEN}} "{{.ALLOWED_SKIPS}}" "{{.REQUIRE_PASS}}" {{.SUITES}}
 
   # ---------------------------------------------------------------------------
   # Anchor cells — the Spec 1 grid (single source of truth for each cell's suites).
   # CI drives these by name (smoke-on-push / full-grid-on-schedule); later specs add rows.
   # ---------------------------------------------------------------------------
   cell:community-direct:
-    desc: "Grid cell — Community/direct (green set minus Pro-gated sse)."
+    desc: "Grid cell — Community/direct (green set minus Pro-gated sse, + edition-limits)."
     cmds:
       - task: cell
-        vars: {EDITION: community, BACKEND: direct, SUITES: "channels pubsub ordering reconnect auth"}
+        vars:
+          EDITION: community
+          BACKEND: direct
+          SUITES: "channels pubsub ordering reconnect auth edition-limits"
+          # The connection-boundary sub-check honestly skips (Community's 500-conn limit exceeds
+          # the 100-conn test cap); tolerate ONLY that named skip. Any other skip reds the cell.
+          ALLOWED_SKIPS: "edition-limits:connection limit rejection"
 
   cell:pro-kafka:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."
@@ -387,6 +401,68 @@ tasks:
     cmds:
       - task: cell
         vars: {EDITION: enterprise, BACKEND: kafka, SUITES: "channels pubsub ordering reconnect sse auth"}
+
+  # ---------------------------------------------------------------------------
+  # Spec 2 cells — edition-axis widening (paid-direct, negative, degradation).
+  # ---------------------------------------------------------------------------
+  cell:pro-direct:
+    desc: "Grid cell — Pro/direct (full green set + edition-limits; restores sse-on-direct)."
+    cmds:
+      - task: cell
+        vars:
+          EDITION: pro
+          BACKEND: direct
+          SUITES: "channels pubsub ordering reconnect sse auth edition-limits"
+          # Pro's 10000-conn limit exceeds the 100-conn test cap → the boundary sub-check skips.
+          ALLOWED_SKIPS: "edition-limits:connection limit rejection"
+
+  cell:enterprise-direct:
+    desc: "Grid cell — Enterprise/direct (full green set + edition-limits; unlimited path, no skips)."
+    cmds:
+      - task: cell
+        # Enterprise is unlimited: edition-limits early-returns per boundary with no skip, so this
+        # cell declares NO allowed skips (the empty ALLOWED_SKIPS default) — any skip reds the cell.
+        vars:
+          EDITION: enterprise
+          BACKEND: direct
+          SUITES: "channels pubsub ordering reconnect sse auth edition-limits"
+
+  cell:expired-direct:
+    desc: "Grid cell — expired Pro → Community degradation (direct); proves Community limits bite."
+    cmds:
+      - task: cell
+        # Mint a Pro token that is already expired (-1d): the stack degrades to Community, so the
+        # gate expects edition=community + expired=true. REQUIRE_PASS forces the Community-only
+        # `tenant limit rejection` check to be present-and-pass (it is absent on the unlimited path,
+        # so it cannot live in the shared verdict) — proving the downgraded limit is actually enforced.
+        vars:
+          EDITION: pro
+          BACKEND: direct
+          SUITES: "edition-limits"
+          EXPIRY: "-1d"
+          EXPECT_EDITION: community
+          EXPECT_EXPIRED: "true"
+          ALLOWED_SKIPS: "edition-limits:connection limit rejection"
+          REQUIRE_PASS: "edition-limits:tenant limit rejection"
+
+  cell:community-kafka-refused:
+    desc: >-
+      Grid cell (NEGATIVE) — Community + kafka MUST refuse to boot. Asserts ws-server exits
+      non-zero with the edition-gate error; a non-zero boot without that error is NOT a pass.
+    vars:
+      # Kafka override + --profile kafka, same as the positive kafka cells — but Community has no
+      # license, so ws-server fail-fasts at config load (MESSAGE_BACKEND=kafka is Pro-gated).
+      COMPOSE: 'docker compose -f docker-compose.yml -f taskfiles/e2e/kafka.override.yml --profile kafka'
+      ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
+    cmds:
+      # Teardown runs even on failure (Taskfile defer, LIFO) — AFTER the helper captures evidence.
+      - defer: "{{.COMPOSE}} down -v"
+      - defer: rm -f {{.ADMIN_KEY_FILE}}
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Negative cell: Community + kafka must REFUSE boot ==="
+        e2e_assert_boot_refused community kafka "$(pwd)/{{.ADMIN_KEY_FILE}}" +1y {{.COMPOSE}}
 
   validate-battery:
     desc: >-

@@ -200,20 +200,26 @@ jobs:
       - id: cells
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            echo 'cells=["community-direct","pro-kafka"]' >> "$GITHUB_OUTPUT"
+            # Smoke: one positive cell per backend + the cheap negative gate cell (boots,
+            # expects refusal, runs no suites). community-direct also carries edition-limits.
+            echo 'cells=["community-direct","pro-kafka","community-kafka-refused"]' >> "$GITHUB_OUTPUT"
           else
-            echo 'cells=["community-direct","pro-kafka","enterprise-kafka"]' >> "$GITHUB_OUTPUT"
+            # Full grid (nightly schedule + manual dispatch): every edition×backend cell —
+            # positive, negative (community-kafka-refused), and degradation (expired-direct).
+            echo 'cells=["community-direct","pro-kafka","enterprise-kafka","pro-direct","enterprise-direct","expired-direct","community-kafka-refused"]' >> "$GITHUB_OUTPUT"
           fi
 
   # ---------------------------------------------------------------------------
   # E2E editions×backends grid — the anchor cells
   # ---------------------------------------------------------------------------
-  # One job per cell (Community/direct, Pro/kafka, Enterprise/kafka), each booting a
-  # build-from-source stack via the single cell runner (task e2e:cell:<cell>) and running
-  # the validate battery hermetically with the anti-vacuous guard. fail-fast: false so one
-  # red cell does not cancel the others. This subsumes the former direct-mode validate
-  # battery job (now the Community/direct cell); kafka-ingest (kafka-ingest + rest-publish
-  # suites) and push (push suite) keep their own jobs below — they are not green-set cells.
+  # One job per cell (positive edition×backend cells, the community-kafka-refused negative
+  # cell, and the expired-direct degradation cell), each booting a build-from-source stack
+  # via the single cell runner (task e2e:cell:<cell>) and running the validate battery
+  # hermetically with the anti-vacuous guard (the negative cell asserts boot refusal, no
+  # suites). fail-fast: false so one red cell does not cancel the others. This subsumes the
+  # former direct-mode validate battery job (now the Community/direct cell); kafka-ingest
+  # (kafka-ingest + rest-publish suites) and push (push suite) keep their own jobs below —
+  # they are not green-set cells.
   e2e-grid:
     name: "grid: ${{ matrix.cell }}"
     needs: [e2e-guard-fixtures, e2e-grid-setup]
