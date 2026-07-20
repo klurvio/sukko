@@ -507,20 +507,39 @@ sukko test validate --suite edition-limits
 Validates that the edition's resource boundaries are actually enforced. It reads the live
 limits/usage from provisioning `/edition` (tenants, routing-rule count) and the gateway
 `/edition` (connections, shards), then asserts each boundary. On an all-zero (unlimited)
-Enterprise license each boundary early-returns an "unlimited" pass. The two feature gates
-(SSE, REST publish) are asserted on every edition: 403 on Community, 200 on Pro/Enterprise.
+Enterprise license each boundary early-returns an "unlimited" pass.
+
+**Feature gates (SSE, REST publish).** Asserted on every edition on a **status + exact error
+`code`** basis, never status alone — a setup rejection must not pass as a gate rejection:
+
+- **Community** — the shared `RequireFeature(SSETransport)` gate rejects both `/sse` and
+  `/api/v1/publish` with **403 `EDITION_LIMIT`** *before* any channel validation; the suite
+  asserts that exact code.
+- **Pro / Enterprise** — the gate is open, so the probes must reach **200**. To do so the
+  suite provisions the run tenant's routing + channel rules (reusing the standard suite setup)
+  and probes a **tenant-qualified** `general.*` channel (a bare, un-prefixed channel is
+  rejected `403 FORBIDDEN` regardless of edition). Because channel rules propagate to the
+  gateway via the async provisioning snapshot, the paid success path is retried within a
+  bounded settle window (2 s) so the single-shot assertion is not flaky; Community is asserted
+  once (the gate 403 is immediate).
 
 **Per-edition routing-rules branch.** The routing-rules API is Pro-gated wholesale
-(`ChannelTopicRouting`), so the check discriminates on **HTTP status + error code**, not on
-the response message:
+(`ChannelTopicRouting`), so the check discriminates on **HTTP status + exact error code**
+(`EDITION_LIMIT` is a substring of the `EDITION_LIMIT_*` limit codes, so matching is on the
+exact `code` field, never a substring):
 
 - **Community** — every routing-rules `PUT` is rejected by the feature-gate middleware with
   **403 `EDITION_LIMIT`**; the suite asserts the API *is* feature-gated (there is no
   reachable "within limit" success on Community).
-- **Pro / Enterprise-with-feature** — the request reaches the count validator: the suite
-  asserts `MaxRoutingRulesPerTenant` rules are accepted (200) and one more is rejected with
-  **400 `TOO_MANY_ROUTING_RULES`**. The boundary is read dynamically from `/edition`, never
-  hardcoded.
+- **Pro / Enterprise-with-feature** — the `ReplaceRoutingRules` handler's **config count
+  validator runs first** (before the service-level edition check): the suite asserts
+  `MaxRoutingRulesPerTenant` rules are accepted (200) and one more is rejected with
+  **400 `TOO_MANY_ROUTING_RULES`**. The config `MAX_ROUTING_RULES_PER_TENANT` (default 100) is
+  the effective boundary — the service's edition-manager check (403
+  `EDITION_LIMIT_ROUTING_RULES_PER_TENANT`) is unreachable while the config limit ≤ the edition
+  limit. All generated rules map to the pre-provisioned default topic — the tester cannot
+  create arbitrary topics — so only the rule *count* varies. The boundary is read dynamically
+  from `/edition`, never hardcoded.
 
 **Capped connection boundary.** The `connections within limit` check opens up to
 `maxTestConnections` (100) WebSocket connections. Because every edition's connection limit
