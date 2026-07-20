@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -280,6 +281,65 @@ func TestClient_ReadEventContextTimeout(t *testing.T) {
 	if elapsed > 1*time.Second {
 		t.Errorf("ReadEvent took %v, expected < 1s (context timeout mechanism failed)", elapsed)
 	}
+}
+
+// TestConnectRaw_SurfacesErrorBody pins the load-bearing behavior of ConnectRaw: on a non-200
+// response it returns the response body so callers can extract the error `code` (e.g. to tell a
+// feature-gate EDITION_LIMIT from a setup FORBIDDEN). On success the body is nil (owned by *Client).
+func TestConnectRaw_SurfacesErrorBody(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-200 returns body and nil client", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, `{"code":"EDITION_LIMIT","message":"This feature requires pro edition or higher"}`)
+		}))
+		defer srv.Close()
+
+		client, status, body, err := ConnectRaw(context.Background(), ConnectConfig{
+			GatewayURL: srv.URL,
+			Channels:   []string{"test.ch"},
+			Logger:     zerolog.Nop(),
+		})
+		if err == nil {
+			t.Fatal("expected error on 403")
+		}
+		if client != nil {
+			t.Error("expected nil client on 403")
+		}
+		if status != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", status)
+		}
+		if !strings.Contains(string(body), `"code":"EDITION_LIMIT"`) {
+			t.Errorf("body = %q, want it to contain the JSON code field", string(body))
+		}
+	})
+
+	t.Run("200 returns client and nil body", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		client, status, body, err := ConnectRaw(context.Background(), ConnectConfig{
+			GatewayURL: srv.URL,
+			Channels:   []string{"test.ch"},
+			Logger:     zerolog.Nop(),
+		})
+		if err != nil {
+			t.Fatalf("connect: %v", err)
+		}
+		defer client.Close()
+		if status != 0 {
+			t.Errorf("status = %d, want 0 on success", status)
+		}
+		if body != nil {
+			t.Errorf("body = %q, want nil on success (owned by *Client)", string(body))
+		}
+	})
 }
 
 func TestClient_APIKeyHeader(t *testing.T) {

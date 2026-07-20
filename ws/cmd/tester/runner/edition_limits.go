@@ -17,6 +17,7 @@ import (
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/routing"
 	"github.com/rs/zerolog"
 )
 
@@ -29,14 +30,20 @@ const editionTestTenantPrefix = "edition-test-"
 // editionHTTPTimeout is the HTTP client timeout for /edition and provisioning API calls.
 const editionHTTPTimeout = 10 * time.Second
 
-// Provisioning API error codes, mirrored here because they are unexported in
-// internal/provisioning/api. The tester matches them in the response body (embedded in
-// the error text by SetRoutingRulesRaw's readError) to discriminate the two DISTINCT
-// routing-rules rejections: the feature gate (403 EDITION_LIMIT, from the RequireFeature
-// middleware) versus the count limit (400 TOO_MANY_ROUTING_RULES, from ReplaceRoutingRules).
+// Provisioning API error codes, mirrored here because they are unexported upstream. The tester
+// matches them via extractErrorCode on the exact `code` field (never strings.Contains —
+// EDITION_LIMIT is a substring of the EDITION_LIMIT_* limit codes) to discriminate the two
+// DISTINCT routing-rules rejections:
+//   - the feature gate (403 EDITION_LIMIT, from the RequireFeature middleware) — seen on Community;
+//   - the per-tenant count boundary (400 TOO_MANY_ROUTING_RULES) — seen on paid editions. This
+//     comes from the ValidateRoutingRules count check in the ReplaceRoutingRules HANDLER
+//     (handlers.go), which runs BEFORE the handler calls the service; the service also has an
+//     edition-manager check (403 EDITION_LIMIT_ROUTING_RULES_PER_TENANT), but it is unreachable
+//     while the config MAX_ROUTING_RULES_PER_TENANT (default 100) is ≤ the edition limit (Pro 100),
+//     so the config validator is the effective boundary and 400 is what the paid cell observes.
 const (
-	errCodeEditionLimit        = "EDITION_LIMIT"          // feature/resource gate (403)
-	errCodeTooManyRoutingRules = "TOO_MANY_ROUTING_RULES" // routing-rule count limit (400)
+	errCodeEditionLimit        = "EDITION_LIMIT"          // feature gate (403)
+	errCodeTooManyRoutingRules = "TOO_MANY_ROUTING_RULES" // routing-rule count boundary (400, handler config validator)
 )
 
 // ConnLimitRejectionCheckName is the check name emitted by the connection-boundary
@@ -112,12 +119,24 @@ func validateEditionLimits(ctx context.Context, run *TestRun, logger zerolog.Log
 	// Feature gate checks (run on all editions including Enterprise)
 	checks := make([]metrics.CheckResult, 0, 12) //nolint:mnd // pre-allocate for ~12 checks across 4 dimensions + 2 feature gates
 
+	// Provision the suite tenant's routing + channel rules so the paid gate probes can reach a
+	// tenant-qualified channel (200). Reuses the shared gate-tolerant setup: on Community the
+	// routing-rules write is itself feature-gated and tolerated, and the gate 403 fires before
+	// channel validation regardless (§X — no bespoke setup).
+	probeTenant := run.authResult.TenantID
+	if err := setupSuiteRoutingRules(ctx, provClient, probeTenant, logger); err != nil {
+		checks = append(checks, metrics.CheckResult{
+			Name: "feature gate setup", Status: metrics.CheckStatusFail, Error: err.Error(),
+		})
+	}
+	_ = provClient.SetChannelRules(ctx, probeTenant, testChannelRules)
+
 	// Feature gate: SSE Transport (Pro+ only)
-	sseCheck := checkSSEFeatureGate(ctx, gwURL, run.authResult.TokenFunc(0), info.Edition, logger)
+	sseCheck := checkSSEFeatureGate(ctx, gwURL, run.authResult.TokenFunc(0), probeTenant, info.Edition, logger)
 	checks = append(checks, sseCheck)
 
 	// Feature gate: REST Publish (Pro+ only, same gate as SSE)
-	restCheck := checkRESTPublishFeatureGate(ctx, gwURL, run.authResult.TokenFunc(0), info.Edition)
+	restCheck := checkRESTPublishFeatureGate(ctx, gwURL, run.authResult.TokenFunc(0), probeTenant, info.Edition)
 	checks = append(checks, restCheck)
 
 	// If all limits are 0 (Enterprise/unlimited), skip numeric boundary tests
@@ -263,7 +282,8 @@ func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningCl
 	}
 
 	// Editions WITH the feature: the count boundary is real — maxRules accepted (200),
-	// maxRules+1 rejected by the count validator (400 TOO_MANY_ROUTING_RULES).
+	// maxRules+1 rejected by the handler's config count validator (400 TOO_MANY_ROUTING_RULES),
+	// which runs before the service-level edition check, making the config limit the effective boundary.
 	var checks []metrics.CheckResult
 
 	status, err := setTestRoutingRulesViaClient(ctx, provClient, tenantID, maxRules)
@@ -286,17 +306,20 @@ func checkRoutingRulesLimit(ctx context.Context, provClient *auth.ProvisioningCl
 }
 
 // classifyRoutingRules classifies a routing-rules PUT response for the given edition,
-// discriminating the two DISTINCT rejections on HTTP status + error code (never message
-// substrings, which are not a stable contract). Community's routing-rules API is Pro-gated,
-// so the rejection it must observe is the feature gate (403 EDITION_LIMIT); editions that
-// have the feature reach ReplaceRoutingRules, whose count validator rejects an over-count
-// request with 400 TOO_MANY_ROUTING_RULES. The status+code split is what keeps a count
-// rejection from being read as a feature gate, and a feature-gate 403 on a paid edition from
-// passing as a count-limit assertion. errText carries the response body (embedded by
-// SetRoutingRulesRaw's readError), which contains the `code` field.
+// discriminating the two DISTINCT rejections on HTTP status + EXACT error code (extractErrorCode,
+// never strings.Contains — EDITION_LIMIT is a substring of the EDITION_LIMIT_* codes). Community's
+// routing-rules API is Pro-gated, so the rejection it must observe is the feature gate
+// (403 EDITION_LIMIT). On paid editions the request reaches the ReplaceRoutingRules handler, whose
+// config count validator rejects an over-count request FIRST with 400 TOO_MANY_ROUTING_RULES —
+// before the service-level edition check, so the config MAX_ROUTING_RULES_PER_TENANT is the effective
+// boundary. The status+code split keeps a count rejection from being read as the feature gate, and a
+// setup failure (400 TOPIC_NOT_PROVISIONED, different code) from passing as the count boundary. errBody
+// carries the response body embedded by SetRoutingRulesRaw's readError, which contains the `code` field.
 func classifyRoutingRules(edition string, statusCode int, errBody string) metrics.CheckResult {
+	code := extractErrorCode(errBody)
+
 	if edition == string(license.Community) {
-		if statusCode == http.StatusForbidden && strings.Contains(errBody, errCodeEditionLimit) {
+		if statusCode == http.StatusForbidden && code == errCodeEditionLimit {
 			return metrics.CheckResult{
 				Name: "routing rules feature gate", Status: metrics.CheckStatusPass,
 				Latency: "community: routing-rules API correctly feature-gated (403 " + errCodeEditionLimit + ")",
@@ -304,11 +327,11 @@ func classifyRoutingRules(edition string, statusCode int, errBody string) metric
 		}
 		return metrics.CheckResult{
 			Name: "routing rules feature gate", Status: metrics.CheckStatusFail,
-			Error: fmt.Sprintf("community: expected 403/%s (feature gate), got status=%d err=%q", errCodeEditionLimit, statusCode, errBody),
+			Error: fmt.Sprintf("community: expected 403/%s (feature gate), got status=%d code=%q", errCodeEditionLimit, statusCode, code),
 		}
 	}
 
-	if statusCode == http.StatusBadRequest && strings.Contains(errBody, errCodeTooManyRoutingRules) {
+	if statusCode == http.StatusBadRequest && code == errCodeTooManyRoutingRules {
 		return metrics.CheckResult{
 			Name: "routing rules limit rejection", Status: metrics.CheckStatusPass,
 			Latency: fmt.Sprintf("%s: count limit correctly enforced (400 %s)", edition, errCodeTooManyRoutingRules),
@@ -316,7 +339,7 @@ func classifyRoutingRules(edition string, statusCode int, errBody string) metric
 	}
 	return metrics.CheckResult{
 		Name: "routing rules limit rejection", Status: metrics.CheckStatusFail,
-		Error: fmt.Sprintf("%s: expected 400/%s (count limit), got status=%d err=%q", edition, errCodeTooManyRoutingRules, statusCode, errBody),
+		Error: fmt.Sprintf("%s: expected 400/%s (count limit), got status=%d code=%q", edition, errCodeTooManyRoutingRules, statusCode, code),
 	}
 }
 
@@ -327,6 +350,65 @@ func errText(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// extractErrorCode returns the `code` field from a provisioning/gateway error body. The body
+// is embedded in a wrapper like `set routing rules: HTTP 403: {"code":"EDITION_LIMIT",...}`, so
+// we scan from the first `{` and unmarshal. Returns "" when there is no JSON object or no code.
+// Exact-field extraction (vs strings.Contains) is required because EDITION_LIMIT is a substring
+// of EDITION_LIMIT_ROUTING_RULES_PER_TENANT — a substring match cannot tell the feature gate
+// from the routing-rule count boundary.
+func extractErrorCode(errBody string) string {
+	start := strings.IndexByte(errBody, '{')
+	if start < 0 {
+		return ""
+	}
+	var parsed struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(errBody[start:]), &parsed); err != nil {
+		return ""
+	}
+	return parsed.Code
+}
+
+// classifyFeatureGate classifies an SSE/REST-publish feature-gate probe for the given edition,
+// discriminating on HTTP status + exact error code (never status alone). On Community the SSE
+// and REST-publish routes share the RequireFeature(SSETransport) gate, which returns 403
+// EDITION_LIMIT before any channel validation — so the rejection MUST carry that exact code; a
+// setup rejection (403 FORBIDDEN from channel-tenant mismatch) MUST NOT pass. On paid editions
+// the gate is open, so a provisioned probe MUST connect/publish successfully (connected).
+func classifyFeatureGate(name, edition string, statusCode int, code string, connected bool) metrics.CheckResult {
+	if edition == string(license.Community) {
+		if statusCode == http.StatusForbidden && code == errCodeEditionLimit {
+			return metrics.CheckResult{
+				Name: name, Status: metrics.CheckStatusPass,
+				Latency: "community: correctly feature-gated (403 " + errCodeEditionLimit + ")",
+			}
+		}
+		if connected {
+			return metrics.CheckResult{
+				Name: name, Status: metrics.CheckStatusFail,
+				Error: "community: expected 403/" + errCodeEditionLimit + " (feature gate), but probe succeeded (gate regressed)",
+			}
+		}
+		return metrics.CheckResult{
+			Name: name, Status: metrics.CheckStatusFail,
+			Error: fmt.Sprintf("community: expected 403/%s (feature gate), got status=%d code=%q", errCodeEditionLimit, statusCode, code),
+		}
+	}
+
+	// Paid (Pro/Enterprise) — gate is open, probe must succeed.
+	if connected {
+		return metrics.CheckResult{
+			Name: name, Status: metrics.CheckStatusPass,
+			Latency: edition + ": accessible (200)",
+		}
+	}
+	return metrics.CheckResult{
+		Name: name, Status: metrics.CheckStatusFail,
+		Error: fmt.Sprintf("%s: expected 200 (gate open), got status=%d code=%q", edition, statusCode, code),
+	}
 }
 
 const maxTestConnections = 100 // cap to avoid resource exhaustion
@@ -425,59 +507,98 @@ func checkShardLimit(info *editionInfo) []metrics.CheckResult {
 	}}
 }
 
-func checkSSEFeatureGate(ctx context.Context, gwURL, token, edition string, logger zerolog.Logger) metrics.CheckResult {
-	client, statusCode, err := testersse.Connect(ctx, testersse.ConnectConfig{
+// gateProbeResult is one observation of a feature-gate probe: the HTTP status, the parsed
+// error `code`, and whether the probe reached a success (connected/published).
+type gateProbeResult struct {
+	statusCode int
+	code       string
+	connected  bool
+}
+
+// featureGateSettleBudget / Tick mirror waitForRoutable's window. Channel rules reach the
+// gateway via the async provisioning snapshot, so a probe fired immediately after
+// SetChannelRules can race it and get a transient 403 FORBIDDEN. On paid editions the success
+// path is retried within this budget; on Community the gate 403 is immediate and never retried.
+const (
+	featureGateSettleBudget = 2 * time.Second
+	featureGateSettleTick   = 200 * time.Millisecond
+)
+
+// probeForEdition runs the feature-gate probe once on Community (the gate 403 is immediate and
+// propagation-independent) and with a bounded settle retry on paid editions (to absorb the async
+// channel-rule propagation window before the single-shot success assertion).
+func probeForEdition(ctx context.Context, edition string, probe func() gateProbeResult) gateProbeResult {
+	if edition == string(license.Community) {
+		return probe()
+	}
+	return probeUntilAllowed(ctx, probe, featureGateSettleBudget, featureGateSettleTick)
+}
+
+// probeUntilAllowed retries probe until it reports connected (success) or the settle budget
+// expires, returning the last observation. Used only on paid editions to absorb the channel-rule
+// propagation window. A non-success result is never masked — the last status/code is returned so
+// the caller can fail loudly. budget/tick are parameters (not the package constants directly) so
+// unit tests can drive the loop with a tiny window.
+func probeUntilAllowed(ctx context.Context, probe func() gateProbeResult, budget, tick time.Duration) gateProbeResult {
+	deadline := time.After(budget)
+	ticker := time.NewTicker(tick)
+	defer ticker.Stop()
+
+	last := probe()
+	for !last.connected {
+		select {
+		case <-ctx.Done():
+			return last
+		case <-deadline:
+			return last
+		case <-ticker.C:
+			last = probe()
+		}
+	}
+	return last
+}
+
+// probeSSEGate performs one SSE connect probe against the tenant-qualified gate channel.
+func probeSSEGate(ctx context.Context, gwURL, token, channel string, logger zerolog.Logger) gateProbeResult {
+	client, statusCode, body, err := testersse.ConnectRaw(ctx, testersse.ConnectConfig{
 		GatewayURL: httpURL(gwURL),
-		Channels:   []string{"test.gate"},
+		Channels:   []string{channel},
 		Token:      token,
 		Logger:     logger,
 	})
-
-	if edition == string(license.Community) {
-		// Expect 403 EDITION_LIMIT
-		if statusCode == http.StatusForbidden {
-			return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusPass, Latency: "community: correctly blocked (403)"}
-		}
-		if client != nil {
-			_ = client.Close()
-			return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusFail, Error: "expected 403, got 200 (connection succeeded)"}
-		}
-		errMsg := fmt.Sprintf("expected 403, got %d", statusCode)
-		if err != nil {
-			errMsg = fmt.Sprintf("expected 403: %v", err)
-		}
-		return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusFail, Error: errMsg}
+	if err == nil && client != nil {
+		_ = client.Close()
+		return gateProbeResult{statusCode: http.StatusOK, connected: true}
 	}
-
-	// Pro/Enterprise — expect success
-	if err != nil {
-		return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("expected 200: %v", err)}
-	}
-	_ = client.Close()
-	return metrics.CheckResult{Name: "sse feature gate", Status: metrics.CheckStatusPass, Latency: edition + ": accessible (200)"}
+	return gateProbeResult{statusCode: statusCode, code: extractErrorCode(string(body))}
 }
 
-func checkRESTPublishFeatureGate(ctx context.Context, gwURL, token, edition string) metrics.CheckResult {
-	client := restpublish.NewClient(httpURL(gwURL))
-	body := []byte(`{"channel":"test.gate","data":{}}`)
-	statusCode, _, err := client.PublishRaw(ctx, body, restpublish.AuthConfig{Token: token}, "application/json")
+func checkSSEFeatureGate(ctx context.Context, gwURL, token, tenantID, edition string, logger zerolog.Logger) metrics.CheckResult {
+	channel := tenantChannel(tenantID, validateSSEChannel)
+	probe := func() gateProbeResult { return probeSSEGate(ctx, gwURL, token, channel, logger) }
+	res := probeForEdition(ctx, edition, probe)
+	return classifyFeatureGate("sse feature gate", edition, res.statusCode, res.code, res.connected)
+}
 
+// probeRESTGate performs one REST publish probe against the tenant-qualified gate channel.
+func probeRESTGate(ctx context.Context, client *restpublish.Client, token, channel string) gateProbeResult {
+	body := fmt.Appendf(nil, `{"channel":%q,"data":{}}`, channel)
+	statusCode, respBody, err := client.PublishRaw(ctx, body, restpublish.AuthConfig{Token: token}, "application/json")
 	if err != nil {
-		return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("request failed: %v", err)}
+		return gateProbeResult{statusCode: statusCode, code: ""}
 	}
-
-	if edition == string(license.Community) {
-		if statusCode == http.StatusForbidden {
-			return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusPass, Latency: "community: correctly blocked (403)"}
-		}
-		return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("expected 403, got %d", statusCode)}
-	}
-
-	// Pro/Enterprise — expect success
 	if statusCode == http.StatusOK {
-		return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusPass, Latency: edition + ": accessible (200)"}
+		return gateProbeResult{statusCode: statusCode, connected: true}
 	}
-	return metrics.CheckResult{Name: "rest publish feature gate", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("expected 200, got %d", statusCode)}
+	return gateProbeResult{statusCode: statusCode, code: extractErrorCode(string(respBody))}
+}
+
+func checkRESTPublishFeatureGate(ctx context.Context, gwURL, token, tenantID, edition string) metrics.CheckResult {
+	client := restpublish.NewClient(httpURL(gwURL))
+	channel := tenantChannel(tenantID, validateSSEChannel)
+	probe := func() gateProbeResult { return probeRESTGate(ctx, client, token, channel) }
+	res := probeForEdition(ctx, edition, probe)
+	return classifyFeatureGate("rest publish feature gate", edition, res.statusCode, res.code, res.connected)
 }
 
 func isUnlimited(info *editionInfo) bool {
@@ -523,11 +644,16 @@ func fetchEditionFrom(ctx context.Context, baseURL string) (*editionResponse, er
 // setTestRoutingRulesViaClient sets routing rules using the ProvisioningClient for auth,
 // returning the HTTP status code for boundary limit testing (needs 200 vs 403 distinction).
 func setTestRoutingRulesViaClient(ctx context.Context, provClient *auth.ProvisioningClient, tenantID string, count int) (int, error) {
+	// All rules map to the single pre-provisioned DefaultTopicSuffix (created as a CreateTenant
+	// side effect). The tester cannot provision arbitrary topics — NoopKafkaAdmin + no topics
+	// endpoint — so distinct per-rule topics (test0..testN) would be rejected TOPIC_NOT_PROVISIONED.
+	// Distinct patterns/priorities keep ValidateRoutingRules happy; only the rule COUNT varies,
+	// isolating the count boundary.
 	rules := make([]map[string]any, 0, count)
 	for i := range count {
 		rules = append(rules, map[string]any{
 			"pattern":  fmt.Sprintf("test.%d.**", i),
-			"topics":   []string{fmt.Sprintf("test%d", i)},
+			"topics":   []string{routing.DefaultTopicSuffix},
 			"priority": i + 1,
 		})
 	}

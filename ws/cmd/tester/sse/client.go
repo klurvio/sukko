@@ -40,7 +40,17 @@ type ConnectConfig struct {
 // Connect opens an SSE connection to GET {GatewayURL}/sse?channels=...&token=...
 // Returns (client, 0, nil) on success, (nil, statusCode, err) on HTTP error.
 // The status code allows suites to assert 401/403 without parsing error bodies.
+// Callers that also need the error body (to assert the `code` field) use ConnectRaw.
 func Connect(ctx context.Context, cfg ConnectConfig) (*Client, int, error) {
+	client, statusCode, _, err := ConnectRaw(ctx, cfg)
+	return client, statusCode, err
+}
+
+// ConnectRaw is Connect but returns the response body on the non-200 path so callers
+// can assert the error `code` (e.g. distinguishing a feature-gate EDITION_LIMIT from a
+// setup FORBIDDEN). On success the streaming body is owned by *Client, so the returned
+// body is nil.
+func ConnectRaw(ctx context.Context, cfg ConnectConfig) (client *Client, statusCode int, errorBody []byte, err error) {
 	url := cfg.GatewayURL + "/sse?channels=" + strings.Join(cfg.Channels, ",")
 	if cfg.Token != "" {
 		url += "&token=" + cfg.Token
@@ -48,7 +58,7 @@ func Connect(ctx context.Context, cfg ConnectConfig) (*Client, int, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, 0, fmt.Errorf("sse connect: create request: %w", err)
+		return nil, 0, nil, fmt.Errorf("sse connect: create request: %w", err)
 	}
 
 	if cfg.APIKey != "" {
@@ -57,19 +67,20 @@ func Connect(ctx context.Context, cfg ConnectConfig) (*Client, int, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("sse connect: %w", err)
+		return nil, 0, nil, fmt.Errorf("sse connect: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // best-effort: error body for code assertion
 		_ = resp.Body.Close()
-		return nil, resp.StatusCode, fmt.Errorf("sse connect: HTTP %d", resp.StatusCode)
+		return nil, resp.StatusCode, body, fmt.Errorf("sse connect: HTTP %d", resp.StatusCode)
 	}
 
 	return &Client{
 		resp:    resp,
 		scanner: bufio.NewScanner(resp.Body),
 		logger:  cfg.Logger,
-	}, 0, nil
+	}, 0, nil, nil
 }
 
 // ReadEvent blocks until the next SSE event. Skips keepalive comments.
