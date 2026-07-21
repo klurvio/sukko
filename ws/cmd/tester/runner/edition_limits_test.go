@@ -137,8 +137,8 @@ func TestClassifyRoutingRules(t *testing.T) {
 // TestEditionTestTenantSlugsAreValid guards against a regression where the test-tenant slug
 // prefix produces slugs that provisioning rejects. Tenant slugs must match
 // ^[a-z][a-z0-9-]{2,62}$ (see internal/provisioning/types.go); an underscore-based prefix
-// yielded an invalid slug that surfaced as HTTP 500 CREATE_FAILED and failed the edition-limits
-// grid cell. The uuid.New().String()[:8] suffix is always 8 lowercase-hex chars (no hyphen).
+// yields an invalid slug rejected with HTTP 400 SLUG_INVALID, which would fail the
+// edition-limits grid cell. The uuid.New().String()[:8] suffix is always 8 lowercase-hex chars (no hyphen).
 func TestEditionTestTenantSlugsAreValid(t *testing.T) {
 	t.Parallel()
 	// Mirror provisioning's tenantSlugPattern.

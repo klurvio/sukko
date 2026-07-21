@@ -37,6 +37,14 @@ var (
 	ErrChannelRulesNotConfigured = errors.New("channel rules store not configured")
 	ErrRoutingRulesNotConfigured = errors.New("routing rules store not configured")
 
+	// Tenant/key input validation sentinel errors. Validators wrap their bare
+	// formatted errors with these (fmt.Errorf("%w: <detail>", ErrXxx, ...)) so the
+	// API layer's errors.Is classification maps each to its own 400 code while the
+	// detail message is preserved.
+	ErrNameInvalid         = errors.New("name is invalid")
+	ErrConsumerTypeInvalid = errors.New("consumer type is invalid")
+	ErrKeyInvalid          = errors.New("key is invalid")
+
 	// Slug rename sentinel errors.
 	ErrSlugAlreadyTaken      = errors.New("slug already taken")
 	ErrSlugReserved          = errors.New("slug is reserved")
@@ -288,6 +296,15 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		return nil, fmt.Errorf("invalid tenant: %w", err)
 	}
 
+	// Validate the embedded initial-key INPUT up front (before any side effect) so an invalid
+	// key returns 400 KEY_INVALID with no partially-created tenant. Only the user-supplied
+	// fields are checked here; the server-generated TenantID is verified after the insert.
+	if req.PublicKey != nil {
+		if err := ValidateKeyInput(req.PublicKey.KeyID, req.PublicKey.Algorithm, req.PublicKey.PublicKey); err != nil {
+			return nil, fmt.Errorf("invalid key: %w", err)
+		}
+	}
+
 	if isReservedSlug(req.Slug) {
 		return nil, ErrSlugReserved
 	}
@@ -369,8 +386,11 @@ func (s *Service) CreateTenant(ctx context.Context, req CreateTenantRequest) (*C
 		}
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
-	// Tenant is now StatusActive in the DB — increment the gauge immediately so that
-	// any subsequent return (including key validation failure) does not under-count.
+	// Tenant is now StatusActive in the DB — increment the gauge immediately so that any
+	// subsequent return does not under-count. Key INPUT is already validated up front, but
+	// the key store-write (s.keys.Create) and the residual internal TenantID assertion in
+	// key.Validate() still return after this point, so the gauge-before-return ordering
+	// remains load-bearing for those paths.
 	IncActiveTenants()
 
 	// Create default quotas
@@ -1411,7 +1431,8 @@ func (s *Service) RenameTenant(ctx context.Context, tenantSlug, newSlug string) 
 
 	// Step 1: validate new slug format
 	if err := ValidateSlug(newSlug); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSlugInvalid, err)
+		// ValidateSlug already wraps ErrSlugInvalid; no need to re-wrap.
+		return nil, fmt.Errorf("rename: %w", err)
 	}
 
 	// Step 2: reserved slug check

@@ -72,7 +72,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateTenantResponse"
         "400":
-          description: Validation error
+          description: "Validation error. Codes: INVALID_REQUEST, SLUG_INVALID, SLUG_RESERVED, NAME_INVALID, CONSUMER_TYPE_INVALID, KEY_INVALID"
           content:
             application/json:
               schema:
@@ -159,7 +159,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Tenant"
         "400":
-          description: Validation error
+          description: "Validation error. Codes: INVALID_REQUEST, SLUG_NOT_PATCHABLE, NAME_INVALID, CONSUMER_TYPE_INVALID"
           content:
             application/json:
               schema:
@@ -259,7 +259,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Tenant"
         "400":
-          description: Validation error (invalid slug, reserved slug, unchanged slug)
+          description: "Validation error. Codes: INVALID_REQUEST, SLUG_INVALID, SLUG_RESERVED, SLUG_UNCHANGED"
           content:
             application/json:
               schema:
@@ -382,7 +382,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TenantKey"
         "400":
-          description: Validation error (invalid PEM, unsupported algorithm)
+          description: "Validation error. Codes: INVALID_REQUEST, KEY_INVALID"
           content:
             application/json:
               schema:
