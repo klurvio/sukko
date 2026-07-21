@@ -75,14 +75,17 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 			Error: fmt.Sprintf("ws publish: %v", err),
 		})
 	} else {
+		// Read until the event carrying this publish's msg_id arrives (matched at .data.msg_id,
+		// the envelope's inner payload). Filtering by msg_id keeps the check non-vacuous — an
+		// unrelated event (keepalive-adjacent traffic, a prior message) cannot satisfy it.
 		readCtx, cancel := context.WithTimeout(ctx, defaultDeliveryTimeout)
-		event, readErr := sseClient.ReadEvent(readCtx)
+		event, readErr := readSSEUntilMsgID(readCtx, sseClient, msgID)
 		cancel()
 
 		if readErr != nil {
 			checks = append(checks, metrics.CheckResult{
 				Name: "ws publish → sse receive", Status: "fail",
-				Error: fmt.Sprintf("sse read: %v", readErr),
+				Error: readErr.Error(),
 			})
 		} else {
 			run.Collector.SSEMessagesReceived.Add(1)
@@ -151,14 +154,15 @@ func validateSSE(ctx context.Context, run *TestRun, logger zerolog.Logger) ([]me
 		} else {
 			run.Collector.RESTPublishSuccess.Add(1)
 
+			// Match this REST publish's msg_id at .data.msg_id (non-vacuous — see Step 2).
 			readCtx2, cancel2 := context.WithTimeout(ctx, defaultDeliveryTimeout)
-			event2, readErr2 := sseClient2.ReadEvent(readCtx2)
+			event2, readErr2 := readSSEUntilMsgID(readCtx2, sseClient2, msgID2)
 			cancel2()
 
 			if readErr2 != nil {
 				checks = append(checks, metrics.CheckResult{
 					Name: "rest publish → sse receive", Status: "fail",
-					Error: fmt.Sprintf("sse read: %v", readErr2),
+					Error: readErr2.Error(),
 				})
 			} else {
 				run.Collector.SSEMessagesReceived.Add(1)

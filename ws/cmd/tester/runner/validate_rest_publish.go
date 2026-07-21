@@ -193,29 +193,16 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 		} else {
 			run.Collector.RESTPublishSuccess.Add(1)
 
-			// Read SSE events until the one carrying msgID2 arrives (or timeout). Filtering
-			// by msg_id is required so unrelated traffic (e.g. the routing probe) cannot
-			// vacuously satisfy this check.
+			// Read SSE events until the one carrying msgID2 arrives (or timeout). The SSE
+			// transport delivers the full broadcast envelope, so the msg_id is matched at
+			// .data.msg_id (readSSEUntilMsgID) — a top-level parse never matches and the read
+			// always times out. Filtering by the specific msg_id keeps the check non-vacuous
+			// so unrelated traffic (e.g. the routing probe) cannot satisfy it.
 			readCtx, cancel := context.WithTimeout(ctx, defaultDeliveryTimeout)
-			received := false
-			var readErr error
-			for {
-				var event *sse.Event
-				event, readErr = sseClient.ReadEvent(readCtx)
-				if readErr != nil {
-					break
-				}
-				var payload struct {
-					MsgID string `json:"msg_id"`
-				}
-				if json.Unmarshal([]byte(event.Data), &payload) == nil && payload.MsgID == msgID2 {
-					received = true
-					break
-				}
-			}
+			_, readErr := readSSEUntilMsgID(readCtx, sseClient, msgID2)
 			cancel()
 
-			if received {
+			if readErr == nil {
 				run.Collector.SSEMessagesReceived.Add(1)
 				checks = append(checks, metrics.CheckResult{
 					Name: "rest publish → sse receive", Status: "pass",
