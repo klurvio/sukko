@@ -30,6 +30,10 @@ valkey:
   existingSecret: ""       # Secret containing the Valkey password
   existingSecretKey: ""    # Key within the secret (default: "valkey-password")
   # password: ""           # Plaintext fallback — local/dev only
+  # TLS / Sentinel: the worker now honors WEBHOOK_WORKER_VALKEY_TLS_ENABLED / _TLS_INSECURE /
+  # _TLS_CA_PATH / _MASTER_NAME, but this chart has no first-class values for them yet — set them
+  # via `extraEnv` (and mount the CA file yourself) until first-class support lands. First-class
+  # TLS/Sentinel parity with the ws-server chart is a tracked follow-up.
 
 # Provisioning gRPC address for the worker to dial (WebhookWorkerService).
 # Defaults to {{ .Release.Name }}-provisioning:9091 — override only for non-standard setups.

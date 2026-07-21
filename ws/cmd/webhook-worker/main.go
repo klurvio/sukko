@@ -49,11 +49,9 @@ func main() {
 		bootLogger.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
-	logger := logging.NewLogger(logging.LoggerConfig{
-		Level:  logging.LogLevel(cfg.LogLevel),
-		Format: logging.LogFormat(cfg.LogFormat),
-	})
-	logger.Info().Str("service", serviceName).Str("environment", cfg.Environment).Msg("Starting")
+	logger := logging.NewLogger(buildLoggerConfig(cfg))
+	// NewLogger already injects "service" as a base field; do not re-add it here.
+	logger.Info().Str("environment", cfg.Environment).Msg("Starting")
 	if cfg.WebhookAllowPrivateIPs {
 		logger.Warn().Msg("WEBHOOK_ALLOW_PRIVATE_IPS=true: SSRF protection disabled — ensure this is not a production deployment")
 	}
@@ -92,15 +90,7 @@ func main() {
 	provClient := worker.NewGRPCProvisioningClient(provConn)
 
 	// --- Broadcast bus (SubscribeAll for fresh events) ---
-	busCfg := broadcast.Config{
-		Type: "valkey",
-		Valkey: broadcast.ValkeyConfig{
-			Addrs:      cfg.ValkeyConfig.Addrs,
-			Password:   cfg.ValkeyConfig.Password,
-			MasterName: cfg.ValkeyConfig.MasterName,
-		},
-	}
-	bus, err := broadcast.NewBus(busCfg, logger)
+	bus, err := broadcast.NewBus(buildBroadcastConfig(cfg), logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to create broadcast bus")
 	}
@@ -234,11 +224,14 @@ func main() {
 
 	grpcSrv.GracefulStop()
 	_ = httpServer.Shutdown(shutdownCtx)
-	bus.ShutdownWithContext(shutdownCtx)
+	// Bus drain is bounded by its own WEBHOOK_WORKER_BROADCAST_SHUTDOWN_TIMEOUT (via
+	// Config.ShutdownTimeout → b.shutdownTimeout), matching ws-server's broadcastBus.Shutdown() (§XVIII).
+	bus.Shutdown()
 
 	// Wait for all goroutines to exit with a timeout guard (§VII: wg.Wait SHOULD have
 	// a timeout mechanism to detect stuck goroutines rather than hanging indefinitely).
-	// shutdownCtx covers gRPC+HTTP+bus stop time above plus wg.Wait below.
+	// shutdownCtx covers gRPC+HTTP stop and the wg.Wait below; the bus drain is bounded
+	// separately by BroadcastShutdownTimeout above.
 	waitDone := make(chan struct{})
 	go func() { wg.Wait(); close(waitDone) }()
 	select {
@@ -257,6 +250,52 @@ func main() {
 // portStr converts a port number to a listener address string.
 func portStr(port int) string {
 	return ":" + strconv.Itoa(port)
+}
+
+// buildLoggerConfig assembles the structured-logger config, including the required
+// ServiceName (omitting it panics in logging.NewLogger). Side-effect-free and
+// test-callable so the boot smoke test can assert the service identity is set.
+func buildLoggerConfig(cfg *platform.WebhookWorkerConfig) logging.LoggerConfig {
+	return logging.LoggerConfig{
+		Level:       logging.LogLevel(cfg.LogLevel),
+		Format:      logging.LogFormat(cfg.LogFormat),
+		ServiceName: serviceName,
+	}
+}
+
+// buildBroadcastConfig assembles the broadcast bus config for this subscribe-only worker,
+// mirroring ws-server's config (§XVIII). Side-effect-free (does NOT dial Valkey) so the boot
+// smoke test can assert every bus-consumed field is populated without a live Valkey.
+//
+// Fields intentionally left at their zero value — the worker only calls SubscribeAll() and
+// never publishes, so these have no effect here (§XV: no dead knobs; enumerated per spec):
+// BufferSize/Limits (SubscribeAll sizes its buffer to the max when Limits is unset), DB
+// (0 = database 0, same as ws-server), PublishTimeout/PublishStalenessThreshold (publisher-
+// side; a future publishing use of the bus from this service must expose them first), and the
+// Reconnect* knobs (the bus never consumes them — reconnection uses internal backoff constants).
+//
+// NOTE (§X, §XVIII documented deviation): the broadcast package lives under internal/server/;
+// with two services consuming it, §X would place it in internal/shared/. Relocation is a tracked
+// follow-up — the import location is unchanged here.
+func buildBroadcastConfig(cfg *platform.WebhookWorkerConfig) broadcast.Config {
+	return broadcast.Config{
+		Type:            platform.BroadcastTypeValkey,
+		ShutdownTimeout: cfg.BroadcastShutdownTimeout,
+		Valkey: broadcast.ValkeyConfig{
+			Addrs:               cfg.ValkeyConfig.Addrs,
+			Password:            cfg.ValkeyConfig.Password,
+			MasterName:          cfg.ValkeyConfig.MasterName,
+			Channel:             cfg.ValkeyChannel,
+			WriteTimeout:        cfg.ValkeyWriteTimeout,
+			StartupPingTimeout:  cfg.ValkeyStartupPingTimeout,
+			HealthCheckInterval: cfg.ValkeyHealthCheckInterval,
+			HealthCheckTimeout:  cfg.ValkeyHealthCheckTimeout,
+			// TLS settings honored (previously silently dropped — FR-005).
+			TLSEnabled:  cfg.ValkeyConfig.TLSEnabled,
+			TLSInsecure: cfg.ValkeyConfig.TLSInsecure,
+			TLSCAPath:   cfg.ValkeyConfig.TLSCAPath,
+		},
+	}
 }
 
 // startInvalidationSubscriber creates a Valkey PSUBSCRIBE goroutine tracked by wg,

@@ -32,6 +32,13 @@ func newValidWebhookWorkerConfig() *WebhookWorkerConfig {
 		DeliveryTimeout:       10 * time.Second,
 		CacheTTL:              30 * time.Second,
 		ValkeyConfig:          ValkeyClientConfig{Addrs: []string{"localhost:6379"}},
+
+		ValkeyChannel:             "ws.broadcast",
+		ValkeyStartupPingTimeout:  5 * time.Second,
+		ValkeyWriteTimeout:        3 * time.Second,
+		ValkeyHealthCheckInterval: 10 * time.Second,
+		ValkeyHealthCheckTimeout:  5 * time.Second,
+		BroadcastShutdownTimeout:  5 * time.Second,
 	}
 }
 
@@ -366,6 +373,42 @@ func TestWebhookWorkerConfig_Validate_WebhookWorkerGRPCAddr(t *testing.T) {
 	cfg.WebhookWorkerGRPCAddr = ""
 	if err := cfg.Validate(); err == nil {
 		t.Error("empty WEBHOOK_WORKER_PROVISIONING_GRPC_ADDR should error")
+	}
+}
+
+func TestWebhookWorkerConfig_Validate_BroadcastBusTuning(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		mutate  func(*WebhookWorkerConfig)
+		errMsg  string // required substring when wantErr
+		wantErr bool
+	}{
+		{"valid defaults ok", func(*WebhookWorkerConfig) {}, "", false},
+		{"empty channel", func(c *WebhookWorkerConfig) { c.ValkeyChannel = "" }, "WEBHOOK_WORKER_VALKEY_CHANNEL", true},
+		{"whitespace channel", func(c *WebhookWorkerConfig) { c.ValkeyChannel = "  " }, "WEBHOOK_WORKER_VALKEY_CHANNEL", true},
+		{"zero startup ping", func(c *WebhookWorkerConfig) { c.ValkeyStartupPingTimeout = 0 }, "WEBHOOK_WORKER_VALKEY_STARTUP_PING_TIMEOUT", true},
+		{"negative write timeout", func(c *WebhookWorkerConfig) { c.ValkeyWriteTimeout = -1 }, "WEBHOOK_WORKER_VALKEY_WRITE_TIMEOUT", true},
+		{"zero health interval", func(c *WebhookWorkerConfig) { c.ValkeyHealthCheckInterval = 0 }, "WEBHOOK_WORKER_VALKEY_HEALTH_CHECK_INTERVAL", true},
+		{"zero health timeout", func(c *WebhookWorkerConfig) { c.ValkeyHealthCheckTimeout = 0 }, "WEBHOOK_WORKER_VALKEY_HEALTH_CHECK_TIMEOUT", true},
+		{"zero shutdown timeout", func(c *WebhookWorkerConfig) { c.BroadcastShutdownTimeout = 0 }, "WEBHOOK_WORKER_BROADCAST_SHUTDOWN_TIMEOUT", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidWebhookWorkerConfig()
+			tt.mutate(cfg)
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.errMsg != "" && err != nil && !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error %q should name %q", err.Error(), tt.errMsg)
+			}
+		})
 	}
 }
 
