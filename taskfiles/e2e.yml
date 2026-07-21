@@ -238,12 +238,12 @@ tasks:
         # non-vacuous guard that the produce fix holds (kafka-ingest above injects directly
         # to Kafka and never exercises backend.Publish, so only this catches a produce regression).
         #
-        # NOTE: the suite's ws/sse DELIVERY checks are NOT gated here. They depend on two
-        # concerns outside #179 P1a's produce fix: (1) a consumer-subscription-timing race
-        # (ws-server's Kafka consumer joins the tenant topic at AtEnd; a message produced
-        # before partition assignment is missed — needs a tester re-publish/poll loop), and
-        # (2) a pre-existing SSE-connect HTTP 400. Both are tracked separately; gating them
-        # here would red the job on issues the produce fix doesn't own.
+        # NOTE: this step gates ONLY the PRODUCE path ("response format"). The suite's ws/sse
+        # DELIVERY checks are gated by the grid cells `cell:pro-kafka` / `cell:enterprise-kafka`
+        # (and the direct cells) via their `REQUIRE_PASS` — those exercise the full
+        # publish→consume→broadcast loop with the delivery-liveness warmup. Re-gating delivery
+        # here would double-cover it and red this produce-focused job on delivery flakes it
+        # doesn't own (§XV).
         echo "=== Run rest-publish suite (kafka mode) ==="
         TMPCFG=$(mktemp -d)
         REPORT=$(HOME="$TMPCFG" XDG_CONFIG_HOME="$TMPCFG/.config" SUKKO_TESTER_TOKEN={{.TESTER_TOKEN}} sukko test validate --suite rest-publish --follow --output json 2>/dev/null | grep '"test_type"' | tail -1)
@@ -253,7 +253,7 @@ tasks:
         # REST publish was accepted with 2xx — i.e. the produce path resolved a valid topic).
         ST=$(echo "$REPORT" | jq -r '.checks[]? | select(.name=="response format") | .status')
         [ "$ST" = "pass" ] || { echo "FAIL: rest-publish 'response format' status=${ST:-<absent>} (want pass — produce path regressed to non-2xx)"; exit 1; }
-        echo "=== rest-publish PRODUCE path PASSED (publish accepted 2xx; delivery closure tracked separately) ==="
+        echo "=== rest-publish PRODUCE path PASSED (publish accepted 2xx; delivery gated in pro-kafka/enterprise-kafka cells) ==="
 
   push-validate:
     desc: >-
@@ -394,13 +394,23 @@ tasks:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."
     cmds:
       - task: cell
-        vars: {EDITION: pro, BACKEND: kafka, SUITES: "channels pubsub ordering reconnect sse auth"}
+        vars:
+          EDITION: pro
+          BACKEND: kafka
+          SUITES: "channels pubsub ordering reconnect sse auth rest-publish"
+          # Force both rest-publish delivery checks present-and-pass (a silently-absent check is not
+          # caught by the base verdict) — this is the per-push kafka-mode delivery regression guard.
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive"
 
   cell:enterprise-kafka:
     desc: "Grid cell — Enterprise/kafka (full green set under an Enterprise license)."
     cmds:
       - task: cell
-        vars: {EDITION: enterprise, BACKEND: kafka, SUITES: "channels pubsub ordering reconnect sse auth"}
+        vars:
+          EDITION: enterprise
+          BACKEND: kafka
+          SUITES: "channels pubsub ordering reconnect sse auth rest-publish"
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive"
 
   # ---------------------------------------------------------------------------
   # Spec 2 cells — edition-axis widening (paid-direct, negative, degradation).
@@ -412,9 +422,12 @@ tasks:
         vars:
           EDITION: pro
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect sse auth edition-limits"
+          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish"
           # Pro's 10000-conn limit exceeds the 100-conn test cap → the boundary sub-check skips.
           ALLOWED_SKIPS: "edition-limits:connection limit rejection"
+          # Force both rest-publish delivery checks present-and-pass (the base verdict catches only
+          # skip/fail/error, not a silently-absent check).
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive"
 
   cell:enterprise-direct:
     desc: "Grid cell — Enterprise/direct (full green set + edition-limits; unlimited path, no skips)."
@@ -425,7 +438,10 @@ tasks:
         vars:
           EDITION: enterprise
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect sse auth edition-limits"
+          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish"
+          # Force both rest-publish delivery checks present-and-pass (the base verdict catches only
+          # skip/fail/error, not a silently-absent check).
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive"
 
   cell:expired-direct:
     desc: "Grid cell — expired Pro → Community degradation (direct); proves Community limits bite."

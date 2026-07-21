@@ -47,14 +47,13 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 
 	var checks []metrics.CheckResult
 
-	// Step 1: Connect WS subscriber + subscribe, wait for propagation
-	var wsReceived struct {
-		mu    sync.Mutex
-		msgID string
-	}
+	// Step 1: Connect WS subscriber + subscribe. Track received msg_ids in a presence set,
+	// accepting delivered ({"type":"message"}) as well as peer-forwarded ({"type":"publish"})
+	// envelopes (acceptsDeliveryEnvelope) — a "publish"-only filter drops delivered broadcasts.
+	tracker := newMsgIDTracker()
 
 	wsClient, err := connectWithRetry(ctx, run.Config.GatewayURL, token, logger, func(msg testerws.Message) {
-		if msg.Type != "publish" {
+		if !acceptsDeliveryEnvelope(msg.Type) {
 			return
 		}
 		var payload struct {
@@ -63,9 +62,7 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 		if err := json.Unmarshal(msg.Data, &payload); err != nil || payload.MsgID == "" {
 			return
 		}
-		wsReceived.mu.Lock()
-		wsReceived.msgID = payload.MsgID
-		wsReceived.mu.Unlock()
+		tracker.Add(payload.MsgID)
 	})
 	if err != nil {
 		return []metrics.CheckResult{{
@@ -86,63 +83,98 @@ func validateRestPublish(ctx context.Context, run *TestRun, logger zerolog.Logge
 		}}, nil
 	}
 
-	time.Sleep(500 * time.Millisecond) // subscription propagation
+	// Delivery-liveness warmup: prove the publish→(produce→consume→)broadcast loop is live before the
+	// measured publishes. Reuses the pubsub engine's probeUntilLive (republishing a probe until it is
+	// received) to absorb the Kafka consumer-join AtEnd cold-start window. The window is per-topic, so
+	// one warmup on sseChannel covers BOTH the WS and SSE legs; on the direct backend it returns within
+	// one interval. Returns an error (never a silent skip) if the loop is not live within the bound.
+	warmupID := "warmup-" + uuid.NewString()
+	warmupPayload, _ := json.Marshal(map[string]any{"msg_id": warmupID}) // json.Marshal on literal map of primitives cannot fail
+	warmupErr := probeUntilLive(ctx, deliveryWarmupTimeout, deliveryWarmupInterval,
+		func() error {
+			if _, err := restClient.Publish(ctx, restpublish.Request{Channel: sseChannel, Data: warmupPayload}, auth); err != nil {
+				return fmt.Errorf("publish warmup probe on %s: %w", sseChannel, err)
+			}
+			return nil
+		},
+		func() bool { return tracker.Has(warmupID) },
+		tracker.Clear,
+		logger,
+	)
 
-	// Step 2: Publish via REST → verify WS receives
-	msgID := uuid.NewString()
-	payload, _ := json.Marshal(map[string]any{
-		"msg_id": msgID,
-		"ts":     time.Now().UnixMilli(),
-	})
-
-	start := time.Now()
-	_, pubErr := restClient.Publish(ctx, restpublish.Request{
-		Channel: sseChannel,
-		Data:    payload,
-	}, auth)
-	if pubErr != nil {
-		run.Collector.RESTPublishErrors.Add(1)
+	// Step 2: Publish via REST → verify WS receives. If the warmup proved the loop is NOT live, emit
+	// the delivery check present-and-fail (so REQUIRE_PASS/the verdict red the cell) without wasting a timeout.
+	if warmupErr != nil {
 		checks = append(checks, metrics.CheckResult{
 			Name: "rest publish → ws receive", Status: "fail",
-			Error: fmt.Sprintf("rest publish: %v", pubErr),
+			Error: fmt.Sprintf("delivery loop not live: %v", warmupErr),
 		})
 	} else {
-		run.Collector.RESTPublishSuccess.Add(1)
+		msgID := uuid.NewString()
+		payload, _ := json.Marshal(map[string]any{ // json.Marshal on literal map of primitives cannot fail
+			"msg_id": msgID,
+			"ts":     time.Now().UnixMilli(),
+		})
 
-		// Wait for WS to receive the message
-		received := waitForWSMessage(&wsReceived, msgID, defaultDeliveryTimeout)
-		if received {
-			checks = append(checks, metrics.CheckResult{
-				Name: "rest publish → ws receive", Status: "pass",
-				Latency: time.Since(start).Round(time.Millisecond).String(),
-			})
-		} else {
+		start := time.Now()
+		_, pubErr := restClient.Publish(ctx, restpublish.Request{
+			Channel: sseChannel,
+			Data:    payload,
+		}, auth)
+		if pubErr != nil {
+			run.Collector.RESTPublishErrors.Add(1)
 			checks = append(checks, metrics.CheckResult{
 				Name: "rest publish → ws receive", Status: "fail",
-				Error: "ws subscriber did not receive message within timeout",
+				Error: fmt.Sprintf("rest publish: %v", pubErr),
 			})
+		} else {
+			run.Collector.RESTPublishSuccess.Add(1)
+
+			// Wait for WS to receive the measured message (loop already proven live by the warmup).
+			if tracker.WaitFor(ctx, msgID, defaultDeliveryTimeout) {
+				checks = append(checks, metrics.CheckResult{
+					Name: "rest publish → ws receive", Status: "pass",
+					Latency: time.Since(start).Round(time.Millisecond).String(),
+				})
+			} else {
+				checks = append(checks, metrics.CheckResult{
+					Name: "rest publish → ws receive", Status: "fail",
+					Error: "ws subscriber did not receive message within timeout",
+				})
+			}
 		}
 	}
 
-	// Step 3: Connect SSE subscriber, publish via REST → verify SSE receives
+	// Step 3: Connect SSE subscriber, publish via REST → verify SSE receives. The SSE subscriber MUST
+	// use the tenant-prefixed channel (a bare channel is stripped by the gateway's channel filter → 400).
 	sseClient, _, sseErr := sse.Connect(ctx, sse.ConnectConfig{
 		GatewayURL: httpURL(run.Config.GatewayURL),
-		Channels:   []string{validateSSEChannel},
+		Channels:   []string{sseChannel},
 		Token:      token,
 		Logger:     logger,
 	})
-	if sseErr != nil {
+	switch {
+	case warmupErr != nil:
+		// Loop not live (proven by the warmup) — emit present-and-fail rather than waiting out the SSE read.
+		checks = append(checks, metrics.CheckResult{
+			Name: "rest publish → sse receive", Status: "fail",
+			Error: fmt.Sprintf("delivery loop not live: %v", warmupErr),
+		})
+		if sseClient != nil {
+			_ = sseClient.Close()
+		}
+	case sseErr != nil:
 		checks = append(checks, metrics.CheckResult{
 			Name: "rest publish → sse receive", Status: "fail",
 			Error: fmt.Sprintf("sse connect: %v", sseErr),
 		})
-	} else {
+	default:
 		defer func() { _ = sseClient.Close() }()
 
 		time.Sleep(500 * time.Millisecond) // subscription propagation
 
 		msgID2 := uuid.NewString()
-		payload2, _ := json.Marshal(map[string]any{
+		payload2, _ := json.Marshal(map[string]any{ // json.Marshal on literal map of primitives cannot fail
 			"msg_id": msgID2,
 			"ts":     time.Now().UnixMilli(),
 		})
@@ -334,26 +366,50 @@ func waitForRoutable(ctx context.Context, c *restpublish.Client, channel string,
 	}
 }
 
-// waitForWSMessage polls until the WS subscriber receives the expected message ID.
-func waitForWSMessage(received *struct {
-	mu    sync.Mutex
-	msgID string
-}, expectedID string, timeout time.Duration) bool {
+// msgIDTracker is a presence set of received msg_ids, guarded for concurrent writes from the WS
+// read-loop goroutine. A set (not a single last-write value) so any published attempt AND duplicate
+// deliveries both count, and a warmup probe cannot flip the tracked value out from under a poll.
+type msgIDTracker struct {
+	mu  sync.Mutex
+	ids map[string]struct{}
+}
+
+func newMsgIDTracker() *msgIDTracker { return &msgIDTracker{ids: make(map[string]struct{})} }
+
+func (t *msgIDTracker) Add(id string) {
+	t.mu.Lock()
+	t.ids[id] = struct{}{}
+	t.mu.Unlock()
+}
+
+func (t *msgIDTracker) Has(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.ids[id]
+	return ok
+}
+
+func (t *msgIDTracker) Clear() {
+	t.mu.Lock()
+	t.ids = make(map[string]struct{})
+	t.mu.Unlock()
+}
+
+// WaitFor polls until id is present, or timeout / ctx cancellation elapses.
+func (t *msgIDTracker) WaitFor(ctx context.Context, id string, timeout time.Duration) bool {
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
-
 	for {
+		if t.Has(id) {
+			return true
+		}
 		select {
 		case <-deadline:
 			return false
+		case <-ctx.Done():
+			return false
 		case <-ticker.C:
-			received.mu.Lock()
-			got := received.msgID
-			received.mu.Unlock()
-			if got == expectedID {
-				return true
-			}
 		}
 	}
 }

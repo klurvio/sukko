@@ -179,6 +179,31 @@ run_case_ext 0 "require-pass: empty list does not enforce" "edition-limits" \
 $RP_ABSENT"
 
 # ---------------------------------------------------------------------------
+# rest-publish require-pass (delivery anti-vacuous) — the paid grid cells declare TWO required
+# checks (";"-separated: "rest publish → ws receive" AND "rest publish → sse receive"). A silently
+# ABSENT delivery check (e.g. the tester regresses to only emitting "response format") or a
+# non-pass one must red the cell. Fixtures use non-ASCII "→" in the names — the ;-split must
+# preserve it verbatim.
+# ---------------------------------------------------------------------------
+RP_REQ='rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive'
+RESTP_BOTH='{"test_type":"validate","suite":"rest-publish","status":"pass","checks":[{"name":"response format","status":"pass"},{"name":"rest publish → ws receive","status":"pass"},{"name":"rest publish → sse receive","status":"pass"}]}'
+RESTP_ABSENT='{"test_type":"validate","suite":"rest-publish","status":"pass","checks":[{"name":"response format","status":"pass"},{"name":"rest publish → ws receive","status":"pass"}]}'
+RESTP_WS_FAIL='{"test_type":"validate","suite":"rest-publish","status":"fail","checks":[{"name":"response format","status":"pass"},{"name":"rest publish → ws receive","status":"fail","error":"not received"},{"name":"rest publish → sse receive","status":"pass"}]}'
+
+# both required delivery checks present-and-pass → pass
+run_case_ext 0 "rest-publish: both delivery checks pass" "rest-publish" \
+  "" "$RP_REQ" "$PROGRESS
+$RESTP_BOTH"
+# sse delivery check silently absent (only produce + ws emitted) → fail (the vacuous-green guard)
+run_case_ext 1 "rest-publish: absent sse delivery check fails" "rest-publish" \
+  "" "$RP_REQ" "$PROGRESS
+$RESTP_ABSENT"
+# a required delivery check present but failed → fail
+run_case_ext 1 "rest-publish: failed ws delivery check fails" "rest-publish" \
+  "" "$RP_REQ" "$PROGRESS
+$RESTP_WS_FAIL"
+
+# ---------------------------------------------------------------------------
 # Boot-refusal classifier fixtures (SC-009) — assert_boot_refused_verdict is non-vacuous.
 # ---------------------------------------------------------------------------
 GATE_LOG='ws-server: Failed to load configuration: MESSAGE_BACKEND=kafka requires pro edition (current: community). Upgrade at https://docs.sukko.dev/editions/upgrade'

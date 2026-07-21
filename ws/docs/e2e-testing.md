@@ -198,10 +198,10 @@ Named anchor cells wrap the runner with their suite sets:
 | Cell (`task e2e:cell:<name>`) | Edition | Backend | Type | Suites / assertion |
 |---|---|---|---|---|
 | `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits` |
-| `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits` |
-| `enterprise-direct` | Enterprise | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits` |
-| `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth` |
-| `enterprise-kafka` | Enterprise | kafka | positive | `channels pubsub ordering reconnect sse auth` |
+| `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish` |
+| `enterprise-direct` | Enterprise | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish` |
+| `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish` |
+| `enterprise-kafka` | Enterprise | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish` |
 | `community-kafka-refused` | Community (no license) | kafka | **negative** | boot MUST fail: ws-server exits non-zero with the kafka edition-gate error |
 | `expired-direct` | Pro, expired (`-1d`) → Community | direct | degradation | gate `edition=community`+`expired=true`; suite `edition-limits` |
 
@@ -213,7 +213,10 @@ cell: a degraded-Community stack on kafka is mechanically identical to
 `community-kafka-refused`. **`sse` is Pro-gated**, so it is omitted from the
 Community/direct cell (where the feature gate rejects the SSE connect) and covered on every
 paid cell — including `pro-direct`/`enterprise-direct`, which restore `sse`-on-direct
-coverage. `task e2e:validate-battery` remains an alias for the `community-direct` cell.
+coverage. `rest-publish` is likewise **Pro-gated** (`/api/v1/publish` shares the SSE feature
+gate), so it runs on the four paid cells only — never on `community-direct`, `expired-direct`
+(degraded to Community), or `community-kafka-refused`. `task e2e:validate-battery` remains an
+alias for the `community-direct` cell.
 
 **Negative cell (`community-kafka-refused`).** Instead of running suites, it asserts the
 stack REFUSES to boot for the right reason: `e2e_assert_boot_refused` reuses the boot path
@@ -236,9 +239,11 @@ cell — as the `e2e-grid` matrix; the **nightly schedule** and **manual
 `workflow_dispatch`** run the **full grid** (all seven cells). The cell list is computed by
 the `e2e-grid-setup` job — later specs add cells by editing that list plus a named cell
 task. The `e2e-guard-fixtures` job runs the anti-vacuous guard fixture tests (no Docker,
-~2s) first, so a regressed guard fails fast before any stack boots. `kafka-ingest`
-(kafka-ingest + rest-publish suites) and `push` keep their own jobs — they are not
-green-set grid cells.
+~2s) first, so a regressed guard fails fast before any stack boots. The `kafka-ingest` job
+still runs the `rest-publish` suite for its **produce-path** guard (the `response format`
+check — the #179 REST→gRPC→producer regression), while the suite's **delivery** checks are
+gated by the four paid grid cells above via `REQUIRE_PASS`; `push` keeps its own job. These
+jobs are not green-set grid cells.
 
 **Fail-closed contract:** a suite fails its cell on a non-`pass` report, any `fail`/`error`
 check, or **any skipped check not declared in the cell's allow-list**. The skip allow-list
@@ -252,7 +257,7 @@ the end. The generic guard is `e2e_battery_verdict` and the negative-cell guard 
 `assert_boot_refused_verdict` (both fixture-tested by
 `taskfiles/e2e/battery_guard_test.sh`).
 
-**Not yet in the grid (tracked for triage):** `rest-publish`, `tenant-isolation`,
+**Not yet in the grid (tracked for triage):** `tenant-isolation`,
 `token-revocation`, `api-key`, `upgrade`, `provisioning`, `ratelimit` —
 each surfaced a real first-contact finding when first run against a live gateway (see the
 validate-battery backlog issue). `kafka-ingest` runs in its own kafka-mode job and `push` in
@@ -273,7 +278,7 @@ load/soak/stress are scale tests.
 | 6 | `reconnect` | Community | no | Disconnect/reconnect recovery |
 | 7 | `ratelimit` | Community | no | Rate limit enforcement |
 | 8 | `sse` | Community | no | SSE transport validation |
-| 9 | `rest-publish` | Community | no | REST publish delivery |
+| 9 | `rest-publish` | Pro | no | REST publish delivery (`/api/v1/publish` is Pro-gated) |
 | 10 | `provisioning` | Community | **yes** | Provisioning API CRUD |
 | 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation |
 | 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect |
@@ -418,9 +423,22 @@ sukko test validate --suite rest-publish
 ```
 
 Validates the REST publish endpoint (`POST /api/v1/tenants/{slug}/publish`): message
-delivery to subscribed clients, oversized message rejection, and auth enforcement.
+delivery to subscribed clients (WS and SSE legs), the response format, oversized message
+rejection, and auth enforcement.
 
-**Minimum edition**: Community  
+Both delivery legs run one **delivery-liveness warmup** after the WS subscribe and before the
+measured publishes: it republishes a `warmup-<uuid>` probe to the tenant channel until a
+subscriber receives it (reusing the pubsub engine's `probeUntilLive`), then resets the
+tracker. This absorbs the Kafka consumer-join `AtEnd` cold-start window (a freshly-provisioned
+tenant's ws-server consumer joins its topic only after a control-plane propagation delay, so
+early publishes are dropped); on the direct backend the probe round-trips within one interval.
+If the loop is not live within the bound, both delivery checks fail present-and-`fail` (never a
+silent skip). The SSE leg subscribes to the **tenant-prefixed** channel — a bare channel is
+stripped by the gateway's channel filter (HTTP 400).
+
+**Minimum edition**: Pro (`/api/v1/publish` shares the SSE feature gate). Runs on the
+`pro-direct`/`enterprise-direct`/`pro-kafka`/`enterprise-kafka` grid cells, which
+`REQUIRE_PASS` both delivery checks so a silently-absent check reds the cell.  
 **Admin key**: not required
 
 ### 2.11 provisioning
