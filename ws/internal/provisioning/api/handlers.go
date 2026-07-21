@@ -77,6 +77,9 @@ const (
 	errCodeAddRoutingRuleFailed = "ADD_ROUTING_RULE_FAILED"
 	errCodeGetTenantFailed      = "GET_TENANT_FAILED"
 	errCodeInternal             = "INTERNAL_ERROR"
+	errCodeNameInvalid          = "NAME_INVALID"
+	errCodeConsumerTypeInvalid  = "CONSUMER_TYPE_INVALID"
+	errCodeKeyInvalid           = "KEY_INVALID"
 
 	// Push credential / channel error codes (§I — named; referenced by the push handlers).
 	errCodeMissingTenantID       = "MISSING_TENANT_ID"
@@ -86,6 +89,9 @@ const (
 	errCodeInvalidCredentialData = "INVALID_CREDENTIAL_DATA" //nolint:gosec // G101 false positive: API error-code string, not a credential
 	errCodeFCMConnectivity       = "FCM_CONNECTIVITY_FAILED"
 	errCodeCreateFailed          = "CREATE_FAILED"
+	errCodeUpdateFailed          = "UPDATE_FAILED"
+	errCodeCreateKeyFailed       = "CREATE_KEY_FAILED"
+	errCodeRenameFailed          = "RENAME_FAILED"
 	errCodeMissingPatterns       = "MISSING_PATTERNS"
 	errCodeInvalidPattern        = "INVALID_PATTERN"
 	errCodeInvalidUrgency        = "INVALID_URGENCY"
@@ -118,49 +124,76 @@ func NewHandler(svc *provisioning.Service, cfg platform.ProvisioningConfig, logg
 	}, nil
 }
 
-// writeServiceError writes an error response, mapping known sentinel errors to appropriate HTTP status codes.
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg string) {
+// classifyServiceError maps a service error to its HTTP status, wire code, and message.
+// Known sentinels map to 4xx; anything unrecognized falls back to 500 with the caller's
+// fallbackCode/fallbackMsg. It is the single source of truth for both the response body and
+// the log level (see logServiceError) so the two cannot diverge.
+func classifyServiceError(err error, fallbackCode, fallbackMsg string) (status int, code, msg string) {
 	switch {
 	case errors.Is(err, provisioning.ErrSlugAlreadyTaken):
-		httputil.WriteError(w, http.StatusConflict, errCodeSlugAlreadyTaken, "Slug already taken")
+		return http.StatusConflict, errCodeSlugAlreadyTaken, "Slug already taken"
 	case errors.Is(err, provisioning.ErrSlugReserved):
-		httputil.WriteError(w, http.StatusBadRequest, errCodeSlugReserved, "Slug is reserved")
+		return http.StatusBadRequest, errCodeSlugReserved, "Slug is reserved"
 	case errors.Is(err, provisioning.ErrSlugInvalid):
-		httputil.WriteError(w, http.StatusBadRequest, errCodeSlugInvalid, "Slug is invalid")
+		return http.StatusBadRequest, errCodeSlugInvalid, err.Error()
+	case errors.Is(err, provisioning.ErrNameInvalid):
+		return http.StatusBadRequest, errCodeNameInvalid, err.Error()
+	case errors.Is(err, provisioning.ErrConsumerTypeInvalid):
+		return http.StatusBadRequest, errCodeConsumerTypeInvalid, err.Error()
+	case errors.Is(err, provisioning.ErrKeyInvalid):
+		return http.StatusBadRequest, errCodeKeyInvalid, err.Error()
 	case errors.Is(err, provisioning.ErrSlugUnchanged):
-		httputil.WriteError(w, http.StatusBadRequest, errCodeSlugUnchanged, "New slug is identical to current slug")
+		return http.StatusBadRequest, errCodeSlugUnchanged, "New slug is identical to current slug"
 	case errors.Is(err, provisioning.ErrSlugRenameInProgress):
-		httputil.WriteError(w, http.StatusConflict, errCodeSlugRenameInProgress, "Slug rename already in progress or within hold period")
+		return http.StatusConflict, errCodeSlugRenameInProgress, "Slug rename already in progress or within hold period"
 	case errors.Is(err, provisioning.ErrSlugImmutableViaPatch):
-		httputil.WriteError(w, http.StatusBadRequest, errCodeSlugNotPatchable, "Slug cannot be changed via PATCH; use the /rename endpoint")
+		return http.StatusBadRequest, errCodeSlugNotPatchable, "Slug cannot be changed via PATCH; use the /rename endpoint"
 	case errors.Is(err, provisioning.ErrTenantNotFound):
-		httputil.WriteError(w, http.StatusNotFound, errCodeTenantNotFound, "Tenant not found")
+		return http.StatusNotFound, errCodeTenantNotFound, "Tenant not found"
 	case errors.Is(err, provisioning.ErrTenantDeleted):
-		httputil.WriteError(w, http.StatusConflict, errCodeTenantDeleted, "Cannot modify deleted tenant")
+		return http.StatusConflict, errCodeTenantDeleted, "Cannot modify deleted tenant"
 	case errors.Is(err, provisioning.ErrTenantNotActive):
-		httputil.WriteError(w, http.StatusConflict, errCodeTenantNotActive, "Tenant is not active")
+		return http.StatusConflict, errCodeTenantNotActive, "Tenant is not active"
 	case errors.Is(err, provisioning.ErrKeyNotOwnedByTenant):
-		httputil.WriteError(w, http.StatusForbidden, errCodeKeyNotOwned, "Key does not belong to tenant")
+		return http.StatusForbidden, errCodeKeyNotOwned, "Key does not belong to tenant"
 	case errors.Is(err, provisioning.ErrAPIKeyNotFound):
-		httputil.WriteError(w, http.StatusNotFound, errCodeAPIKeyNotFound, "API key not found")
+		return http.StatusNotFound, errCodeAPIKeyNotFound, "API key not found"
 	case errors.Is(err, provisioning.ErrAPIKeyNotOwnedByTenant):
-		httputil.WriteError(w, http.StatusForbidden, errCodeAPIKeyNotOwned, "API key does not belong to tenant")
+		return http.StatusForbidden, errCodeAPIKeyNotOwned, "API key does not belong to tenant"
 	case errors.Is(err, provisioning.ErrQuotaNotFound):
-		httputil.WriteError(w, http.StatusNotFound, errCodeQuotaNotFound, "Quota not found")
+		return http.StatusNotFound, errCodeQuotaNotFound, "Quota not found"
 	case errors.Is(err, provisioning.ErrKeyNotFound):
-		httputil.WriteError(w, http.StatusNotFound, errCodeKeyNotFound, "Key not found")
+		return http.StatusNotFound, errCodeKeyNotFound, "Key not found"
 	case errors.Is(err, provisioning.ErrInvalidQuota):
-		httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidQuota, err.Error())
+		return http.StatusBadRequest, errCodeInvalidQuota, err.Error()
 	case errors.Is(err, provisioning.ErrChannelRulesNotConfigured),
 		errors.Is(err, provisioning.ErrRoutingRulesNotConfigured):
-		httputil.WriteError(w, http.StatusNotImplemented, errCodeFeatureNotConfigured, "Feature store not configured")
+		return http.StatusNotImplemented, errCodeFeatureNotConfigured, "Feature store not configured"
 	case errors.Is(err, provisioning.ErrTooManyRoutingRules):
-		httputil.WriteError(w, http.StatusBadRequest, errCodeTooManyRoutingRules, "Too many routing rules")
+		return http.StatusBadRequest, errCodeTooManyRoutingRules, "Too many routing rules"
 	case isEditionError(err):
-		writeEditionError(w, err)
+		return editionErrorResponse(err)
 	default:
-		httputil.WriteError(w, http.StatusInternalServerError, code, msg)
+		return http.StatusInternalServerError, fallbackCode, fallbackMsg
 	}
+}
+
+// writeServiceError classifies err and writes the response. Retained for the ~11 handlers
+// that do not yet log off the classified status; in-scope handlers (create/update/key-create/
+// rename) call classifyServiceError directly so they classify exactly once (log + response).
+func (h *Handler) writeServiceError(w http.ResponseWriter, err error, code, msg string) {
+	status, wireCode, wireMsg := classifyServiceError(err, code, msg)
+	httputil.WriteError(w, status, wireCode, wireMsg)
+}
+
+// logServiceError logs a service error at a level driven by its classified HTTP status:
+// client errors (4xx) are Warn, internal failures (5xx) are Error.
+func (h *Handler) logServiceError(status int, err error, op, slug string) {
+	evt := h.logger.Warn()
+	if status >= http.StatusInternalServerError {
+		evt = h.logger.Error()
+	}
+	evt.Err(err).Str(logging.LogKeyTenantSlug, slug).Msg(op)
 }
 
 // isEditionError returns true if the error is a license edition limit or feature error.
@@ -170,19 +203,17 @@ func isEditionError(err error) bool {
 	return isLimit || isFeature
 }
 
-// writeEditionError writes an HTTP 403 response for edition limit/feature errors.
-func writeEditionError(w http.ResponseWriter, err error) {
+// editionErrorResponse maps a license edition limit/feature error to a 403 response triple.
+// Both edition error types normalise to the "EDITION_LIMIT" wire code, matching the
+// RequireFeature middleware.
+func editionErrorResponse(err error) (status int, code, msg string) {
 	if limitErr, ok := errors.AsType[*license.EditionLimitError](err); ok {
-		httputil.WriteError(w, http.StatusForbidden, limitErr.Code(), limitErr.Error())
-		return
+		return http.StatusForbidden, limitErr.Code(), limitErr.Error()
 	}
 	if featureErr, ok := errors.AsType[*license.EditionFeatureError](err); ok {
-		// Normalise both edition error types to the same wire code for consistency:
-		// EditionFeatureError.Code() returns "EDITION_FEATURE_REQUIRED" but clients
-		// see "EDITION_LIMIT" here, matching RequireFeature middleware.
-		httputil.WriteError(w, http.StatusForbidden, errCodeEditionLimit, featureErr.Error())
-		return
+		return http.StatusForbidden, errCodeEditionLimit, featureErr.Error()
 	}
+	return http.StatusInternalServerError, errCodeInternal, "edition error"
 }
 
 // Health returns basic health status.
@@ -216,9 +247,10 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.CreateTenant(r.Context(), req)
 	if err != nil {
-		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, req.Slug).Msg("Failed to create tenant")
+		status, code, msg := classifyServiceError(err, errCodeCreateFailed, "Failed to create tenant")
+		h.logServiceError(status, err, "Failed to create tenant", req.Slug)
 		RecordTenantOperation(tenantOpCreate, pkgmetrics.ResultError)
-		h.writeServiceError(w, err, "CREATE_FAILED", "Failed to create tenant")
+		httputil.WriteError(w, status, code, msg)
 		return
 	}
 
@@ -283,8 +315,9 @@ func (h *Handler) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 
 	tenant, err := h.service.UpdateTenant(r.Context(), tenantSlug, req)
 	if err != nil {
-		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("Failed to update tenant")
-		h.writeServiceError(w, err, "UPDATE_FAILED", "Failed to update tenant")
+		status, code, msg := classifyServiceError(err, errCodeUpdateFailed, "Failed to update tenant")
+		h.logServiceError(status, err, "Failed to update tenant", tenantSlug)
+		httputil.WriteError(w, status, code, msg)
 		return
 	}
 
@@ -359,8 +392,9 @@ func (h *Handler) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	key, err := h.service.CreateKey(r.Context(), tenantSlug, req)
 	if err != nil {
-		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Msg("Failed to create key")
-		h.writeServiceError(w, err, "CREATE_KEY_FAILED", "Failed to create key")
+		status, code, msg := classifyServiceError(err, errCodeCreateKeyFailed, "Failed to create key")
+		h.logServiceError(status, err, "Failed to create key", tenantSlug)
+		httputil.WriteError(w, status, code, msg)
 		return
 	}
 
@@ -669,8 +703,14 @@ func (h *Handler) RenameTenant(w http.ResponseWriter, r *http.Request) {
 
 	tenant, err := h.service.RenameTenant(r.Context(), tenantSlug, req.Slug)
 	if err != nil {
-		h.logger.Error().Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Str("new_slug", req.Slug).Msg("Failed to rename tenant")
-		h.writeServiceError(w, err, "RENAME_FAILED", "Failed to rename tenant")
+		status, code, msg := classifyServiceError(err, errCodeRenameFailed, "Failed to rename tenant")
+		// Level-aware log (client 4xx → Warn, 5xx → Error), preserving the new_slug field.
+		evt := h.logger.Warn()
+		if status >= http.StatusInternalServerError {
+			evt = h.logger.Error()
+		}
+		evt.Err(err).Str(logging.LogKeyTenantSlug, tenantSlug).Str("new_slug", req.Slug).Msg("Failed to rename tenant")
+		httputil.WriteError(w, status, code, msg)
 		return
 	}
 

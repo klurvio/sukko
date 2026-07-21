@@ -156,11 +156,12 @@ type Tenant struct {
 // tenantSlugPattern validates tenant slugs.
 var tenantSlugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,62}$`)
 
-// ValidateSlug checks if a tenant slug is valid.
+// ValidateSlug checks if a tenant slug is valid. On failure it wraps ErrSlugInvalid so
+// every caller (create, rename, PATCH re-validate) classifies to 400 SLUG_INVALID.
 func ValidateSlug(slug string) error {
 	if !tenantSlugPattern.MatchString(slug) {
-		return fmt.Errorf("invalid tenant slug: must be 3-63 lowercase alphanumeric characters, "+
-			"starting with a letter, may contain hyphens (got: %q)", slug)
+		return fmt.Errorf("%w: must be 3-63 lowercase alphanumeric characters, "+
+			"starting with a letter, may contain hyphens (got: %q)", ErrSlugInvalid, slug)
 	}
 	return nil
 }
@@ -171,13 +172,13 @@ func (t *Tenant) Validate() error {
 		return err
 	}
 	if t.Name == "" {
-		return errors.New("tenant name is required")
+		return fmt.Errorf("%w: tenant name is required", ErrNameInvalid)
 	}
 	if len(t.Name) > 256 {
-		return errors.New("tenant name must be <= 256 characters")
+		return fmt.Errorf("%w: tenant name must be <= 256 characters", ErrNameInvalid)
 	}
 	if !t.ConsumerType.IsValid() {
-		return fmt.Errorf("invalid consumer type: %q", t.ConsumerType)
+		return fmt.Errorf("%w: invalid consumer type: %q", ErrConsumerTypeInvalid, t.ConsumerType)
 	}
 	return nil
 }
@@ -237,32 +238,46 @@ type TenantKey struct {
 // keyIDPattern validates key IDs.
 var keyIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,62}$`)
 
-// ValidateKeyID checks if a key ID is valid.
+// ValidateKeyID checks if a key ID is valid. On failure it wraps ErrKeyInvalid.
 func ValidateKeyID(id string) error {
 	if !keyIDPattern.MatchString(id) {
-		return fmt.Errorf("invalid key ID: must be 3-63 lowercase alphanumeric characters, "+
-			"starting with a letter, may contain hyphens (got: %q)", id)
+		return fmt.Errorf("%w: invalid key ID: must be 3-63 lowercase alphanumeric characters, "+
+			"starting with a letter, may contain hyphens (got: %q)", ErrKeyInvalid, id)
 	}
 	return nil
 }
 
-// Validate checks if the key is valid for creation.
+// ValidateKeyInput validates the user-supplied key fields (key ID, algorithm, PEM public
+// key) — the fields that carry NO dependency on the server-generated TenantID. Every failure
+// wraps ErrKeyInvalid so it classifies to 400 KEY_INVALID. Callable before any side effect
+// (CreateTenant embeds it up front; CreateKey uses the full TenantKey.Validate below).
+func ValidateKeyInput(keyID string, algorithm Algorithm, publicKey string) error {
+	if err := ValidateKeyID(keyID); err != nil {
+		return err
+	}
+	if !algorithm.IsValid() {
+		return fmt.Errorf("%w: invalid algorithm: %q (must be ES256, RS256, or EdDSA)", ErrKeyInvalid, algorithm)
+	}
+	if publicKey == "" {
+		return fmt.Errorf("%w: public key is required", ErrKeyInvalid)
+	}
+	// Basic PEM format check.
+	if len(publicKey) < 50 {
+		return fmt.Errorf("%w: public key appears too short to be valid PEM", ErrKeyInvalid)
+	}
+	return nil
+}
+
+// Validate checks if the key is valid for creation. User-input rules run first (via
+// ValidateKeyInput → 400 KEY_INVALID); the TenantID UUID check runs LAST as an internal
+// assertion (TenantID is server-generated, so a failure is an internal bug → 500), ensuring
+// any user-input 400 always classifies before the internal 500.
 func (k *TenantKey) Validate() error {
-	if err := ValidateKeyID(k.KeyID); err != nil {
+	if err := ValidateKeyInput(k.KeyID, k.Algorithm, k.PublicKey); err != nil {
 		return err
 	}
 	if _, err := uuid.Parse(k.TenantID); err != nil {
 		return fmt.Errorf("invalid tenant ID: must be a valid UUID (got: %q)", k.TenantID)
-	}
-	if !k.Algorithm.IsValid() {
-		return fmt.Errorf("invalid algorithm: %q (must be ES256, RS256, or EdDSA)", k.Algorithm)
-	}
-	if k.PublicKey == "" {
-		return errors.New("public key is required")
-	}
-	// Basic PEM format check
-	if len(k.PublicKey) < 50 {
-		return errors.New("public key appears too short to be valid PEM")
 	}
 	return nil
 }
