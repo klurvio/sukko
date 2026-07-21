@@ -52,6 +52,17 @@ type WebhookWorkerConfig struct {
 	// ValkeyConfig is the Valkey connection for this service.
 	// envPrefix:"WEBHOOK_WORKER_" produces WEBHOOK_WORKER_VALKEY_ADDRS etc.
 	ValkeyConfig ValkeyClientConfig `envPrefix:"WEBHOOK_WORKER_"`
+
+	// Broadcast bus tuning. These fields are webhook-worker-specific (the shared
+	// ValkeyClientConfig above is also embedded by provisioning, which does not use a
+	// broadcast bus — keeping them here avoids dead knobs on provisioning). Defaults
+	// mirror ws-server's production-intended values so the two services stay in sync (§XVIII).
+	ValkeyChannel             string        `env:"WEBHOOK_WORKER_VALKEY_CHANNEL" envDefault:"ws.broadcast"`      // Valkey pub/sub channel prefix for broadcast events. MUST match ws-server's VALKEY_CHANNEL or the worker receives no events (the full per-tenant channel is {prefix}:{tenantID}).
+	ValkeyStartupPingTimeout  time.Duration `env:"WEBHOOK_WORKER_VALKEY_STARTUP_PING_TIMEOUT" envDefault:"5s"`   // Timeout for the Valkey connectivity check during webhook-worker startup. Must be > 0 or the check fails instantly.
+	ValkeyWriteTimeout        time.Duration `env:"WEBHOOK_WORKER_VALKEY_WRITE_TIMEOUT" envDefault:"3s"`          // Timeout for Valkey write operations (SUBSCRIBE/PSUBSCRIBE) from the broadcast bus.
+	ValkeyHealthCheckInterval time.Duration `env:"WEBHOOK_WORKER_VALKEY_HEALTH_CHECK_INTERVAL" envDefault:"10s"` // Interval for periodic Valkey health checks. Must be > 0 or the health monitor is disabled.
+	ValkeyHealthCheckTimeout  time.Duration `env:"WEBHOOK_WORKER_VALKEY_HEALTH_CHECK_TIMEOUT" envDefault:"5s"`   // Timeout for each Valkey health check PING.
+	BroadcastShutdownTimeout  time.Duration `env:"WEBHOOK_WORKER_BROADCAST_SHUTDOWN_TIMEOUT" envDefault:"5s"`    // Timeout for draining the broadcast bus during graceful shutdown.
 }
 
 // Validate checks all WebhookWorkerConfig bounds and required fields.
@@ -92,6 +103,24 @@ func (c *WebhookWorkerConfig) Validate() error {
 	}
 	if !slices.ContainsFunc(c.ValkeyConfig.Addrs, func(s string) bool { return strings.TrimSpace(s) != "" }) {
 		return errors.New("WEBHOOK_WORKER_VALKEY_ADDRS is required and must contain at least one non-empty address")
+	}
+	if strings.TrimSpace(c.ValkeyChannel) == "" {
+		return errors.New("WEBHOOK_WORKER_VALKEY_CHANNEL cannot be empty")
+	}
+	if c.ValkeyStartupPingTimeout <= 0 {
+		return fmt.Errorf("WEBHOOK_WORKER_VALKEY_STARTUP_PING_TIMEOUT must be > 0, got %v", c.ValkeyStartupPingTimeout)
+	}
+	if c.ValkeyWriteTimeout <= 0 {
+		return fmt.Errorf("WEBHOOK_WORKER_VALKEY_WRITE_TIMEOUT must be > 0, got %v", c.ValkeyWriteTimeout)
+	}
+	if c.ValkeyHealthCheckInterval <= 0 {
+		return fmt.Errorf("WEBHOOK_WORKER_VALKEY_HEALTH_CHECK_INTERVAL must be > 0, got %v", c.ValkeyHealthCheckInterval)
+	}
+	if c.ValkeyHealthCheckTimeout <= 0 {
+		return fmt.Errorf("WEBHOOK_WORKER_VALKEY_HEALTH_CHECK_TIMEOUT must be > 0, got %v", c.ValkeyHealthCheckTimeout)
+	}
+	if c.BroadcastShutdownTimeout <= 0 {
+		return fmt.Errorf("WEBHOOK_WORKER_BROADCAST_SHUTDOWN_TIMEOUT must be > 0, got %v", c.BroadcastShutdownTimeout)
 	}
 	if c.WebhookWorkerGRPCAddr == "" {
 		return errors.New("WEBHOOK_WORKER_PROVISIONING_GRPC_ADDR is required")
