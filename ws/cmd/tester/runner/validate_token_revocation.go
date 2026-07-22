@@ -87,7 +87,7 @@ func validateTokenRevocation(ctx context.Context, run *TestRun, logger zerolog.L
 	var checks []metrics.CheckResult
 
 	// --- Edition gate (NFR-003) ---
-	edition, err := fetchCurrentEdition(ctx, gwURL)
+	edition, err := fetchCurrentEdition(ctx, httpURL(gwURL))
 	if err != nil {
 		return nil, fmt.Errorf("fetch edition: %w", err)
 	}
@@ -99,18 +99,38 @@ func validateTokenRevocation(ctx context.Context, run *TestRun, logger zerolog.L
 	}
 	logger.Info().Str("edition", string(edition)).Msg("token-revocation suite starting")
 
+	// --- Readiness gate (FR-007): don't revoke until the gateway's revocation stream is connected,
+	// else a revoke published before the gateway has its snapshot is missed (cold-start flake). ---
+	if run.Config.GatewayMetricsURL == "" {
+		return append(checks, metrics.CheckResult{
+			Name: "revocation-stream-ready", Status: metrics.CheckStatusFail,
+			Error: "TESTER_GATEWAY_METRICS_URL not set — cannot verify revocation-stream readiness",
+		}), nil
+	}
+	if readyErr := waitForRevocationStreamReady(ctx, run.Config.GatewayMetricsURL); readyErr != nil {
+		return append(checks, metrics.CheckResult{
+			Name: "revocation-stream-ready", Status: metrics.CheckStatusFail,
+			Error: fmt.Sprintf("gateway revocation stream not ready: %v", readyErr),
+		}), nil
+	}
+	checks = append(checks, metrics.CheckResult{Name: "revocation-stream-ready", Status: metrics.CheckStatusPass})
+
+	// The /revoke endpoint lives on the PROVISIONING admin API (not proxied by the gateway),
+	// so revocation POSTs target provURL; WS/SSE/push connects still use the gateway (gwURL).
+	provURL := run.Config.ProvisioningURL
+
 	// --- Scenario 1: jti revocation (WS) ---
-	checks = append(checks, checkJTIRevocation(ctx, gwURL, minter, tenantID, logger)...)
+	checks = append(checks, checkJTIRevocation(ctx, gwURL, provURL, minter, tenantID, logger)...)
 
 	// --- Scenario 2: sub revocation (WS) ---
-	checks = append(checks, checkSubRevocation(ctx, gwURL, minter, tenantID, logger)...)
+	checks = append(checks, checkSubRevocation(ctx, gwURL, provURL, minter, tenantID, logger)...)
 
 	// --- Scenario 3: SSE force-disconnect ---
-	checks = append(checks, checkSSERevocation(ctx, gwURL, minter, tenantID, provClient, logger)...)
+	checks = append(checks, checkSSERevocation(ctx, gwURL, provURL, minter, tenantID, provClient, logger)...)
 
 	// --- Scenario 4: push registration cleanup (Enterprise only) ---
 	if license.EditionHasFeature(edition, license.PushNotifications) {
-		checks = append(checks, checkPushRevocation(ctx, gwURL, minter, tenantID, provClient, logger)...)
+		checks = append(checks, checkPushRevocation(ctx, gwURL, provURL, minter, tenantID, provClient, logger)...)
 	} else {
 		checks = append(checks, metrics.CheckResult{
 			Name: "push-registration-deleted", Status: metrics.CheckStatusSkip,
@@ -119,20 +139,20 @@ func validateTokenRevocation(ctx context.Context, run *TestRun, logger zerolog.L
 	}
 
 	// --- Scenario 5: invalid requests + cross-tenant ---
-	invalidChecks, invalidErr := checkInvalidRevocations(ctx, run, gwURL, minter, tenantID, logger)
+	invalidChecks, invalidErr := checkInvalidRevocations(ctx, run, provURL, minter, tenantID, logger)
 	if invalidErr != nil {
 		return nil, fmt.Errorf("invalid revocations: %w", invalidErr)
 	}
 	checks = append(checks, invalidChecks...)
 
 	// --- Edge cases ---
-	checks = append(checks, checkEdgeCases(ctx, gwURL, minter, tenantID, logger)...)
+	checks = append(checks, checkEdgeCases(ctx, provURL, minter, tenantID, logger)...)
 
 	return checks, nil
 }
 
 // checkJTIRevocation implements Scenario 1: jti-based revocation.
-func checkJTIRevocation(ctx context.Context, gwURL string, minter *auth.Minter, tenantID string, logger zerolog.Logger) []metrics.CheckResult {
+func checkJTIRevocation(ctx context.Context, gwURL, provURL string, minter *auth.Minter, tenantID string, logger zerolog.Logger) []metrics.CheckResult {
 	var checks []metrics.CheckResult
 	jti := "revoke-jti-" + uuid.NewString()[:8]
 
@@ -163,7 +183,7 @@ func checkJTIRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 	}()
 
 	// Revoke the jti
-	status, err := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
+	status, err := revokeToken(ctx, provURL, token, tenantID, revokeRequest{JTI: jti})
 	if err != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "jti-force-disconnect", Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, err)})
@@ -210,7 +230,7 @@ func checkJTIRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 }
 
 // checkSubRevocation implements Scenario 2: sub-based revocation.
-func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, tenantID string, logger zerolog.Logger) []metrics.CheckResult {
+func checkSubRevocation(ctx context.Context, gwURL, provURL string, minter *auth.Minter, tenantID string, logger zerolog.Logger) []metrics.CheckResult {
 	var checks []metrics.CheckResult
 	sub := "revoke-user-" + uuid.NewString()[:8]
 	oldIAT := time.Now().Add(-1 * time.Hour)
@@ -273,7 +293,7 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 		return append(checks, metrics.CheckResult{Name: "sub-force-disconnect-all", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("mint revoke token: %v", err)})
 	}
 
-	status, revokeErr := revokeToken(ctx, gwURL, callerToken, tenantID, revokeRequest{Sub: sub})
+	status, revokeErr := revokeToken(ctx, provURL, callerToken, tenantID, revokeRequest{Sub: sub})
 	if revokeErr != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "sub-force-disconnect-all", Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, revokeErr)})
@@ -376,7 +396,7 @@ func checkSubRevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 }
 
 // checkSSERevocation implements Scenario 3: SSE force-disconnect.
-func checkSSERevocation(ctx context.Context, gwURL string, minter *auth.Minter, tenantID string, provClient *auth.ProvisioningClient, logger zerolog.Logger) []metrics.CheckResult {
+func checkSSERevocation(ctx context.Context, gwURL, provURL string, minter *auth.Minter, tenantID string, provClient *auth.ProvisioningClient, logger zerolog.Logger) []metrics.CheckResult {
 	var checks []metrics.CheckResult
 	jti := "revoke-sse-" + uuid.NewString()[:8]
 	testChannel := tenantID + ".revoke-test"
@@ -407,7 +427,7 @@ func checkSSERevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 
 	// Connect SSE
 	sseClient, sseStatus, err := testersse.Connect(ctx, testersse.ConnectConfig{
-		GatewayURL: gwURL,
+		GatewayURL: httpURL(gwURL), // SSE is HTTP; gwURL is ws://
 		Channels:   []string{testChannel},
 		Token:      token,
 		Logger:     logger,
@@ -431,7 +451,7 @@ func checkSSERevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 	}()
 
 	// Revoke the jti
-	status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
+	status, revokeErr := revokeToken(ctx, provURL, token, tenantID, revokeRequest{JTI: jti})
 	if revokeErr != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "sse-force-disconnect", Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, revokeErr)})
@@ -454,8 +474,9 @@ func checkSSERevocation(ctx context.Context, gwURL string, minter *auth.Minter, 
 }
 
 // checkPushRevocation implements Scenario 4: push registration cleanup.
-func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter, tenantID string, provClient *auth.ProvisioningClient, logger zerolog.Logger) []metrics.CheckResult {
+func checkPushRevocation(ctx context.Context, gwURL, provURL string, minter *auth.Minter, tenantID string, provClient *auth.ProvisioningClient, logger zerolog.Logger) []metrics.CheckResult {
 	var checks []metrics.CheckResult
+	gwURL = httpURL(gwURL) // push subscribe/unsubscribe are HTTP; gwURL is ws://
 
 	// Setup VAPID credentials and push channels (matching validate_push.go pattern)
 	vapidCreds := `{"public_key":"BDummy_VAPID_Public_Key_For_Testing_Only","private_key":"dummy-vapid-private-key-for-testing"}` //nolint:gosec // G101: fake test credentials for push validation — not real secrets
@@ -495,7 +516,7 @@ func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter,
 	logger.Info().Int64("device_id", deviceID1).Str("jti", jti).Msg("push device registered for revocation test")
 
 	// Revoke the jti
-	status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: jti})
+	status, revokeErr := revokeToken(ctx, provURL, token, tenantID, revokeRequest{JTI: jti})
 	if revokeErr != nil || status != http.StatusOK {
 		return append(checks, metrics.CheckResult{Name: "push-registration-deleted", Status: metrics.CheckStatusFail,
 			Error: fmt.Sprintf("revoke: HTTP %d, err: %v", status, revokeErr)})
@@ -545,7 +566,7 @@ func checkPushRevocation(ctx context.Context, gwURL string, minter *auth.Minter,
 }
 
 // checkInvalidRevocations implements Scenario 5: invalid requests.
-func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, minter *auth.Minter, tenantID string, logger zerolog.Logger) ([]metrics.CheckResult, error) {
+func checkInvalidRevocations(ctx context.Context, run *TestRun, provURL string, minter *auth.Minter, tenantID string, logger zerolog.Logger) ([]metrics.CheckResult, error) {
 	var checks []metrics.CheckResult
 
 	token, err := minter.MintWithClaims(auth.MintOptions{
@@ -557,7 +578,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 	}
 
 	// AC1: neither sub nor jti → 400
-	status, _ := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{})
+	status, _ := revokeToken(ctx, provURL, token, tenantID, revokeRequest{})
 	if status == http.StatusBadRequest {
 		checks = append(checks, metrics.CheckResult{Name: "revoke-missing-fields", Status: metrics.CheckStatusPass})
 	} else {
@@ -566,7 +587,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 	}
 
 	// AC2: both sub and jti → 400
-	status, _ = revokeToken(ctx, gwURL, token, tenantID, revokeRequest{Sub: "user", JTI: "token"})
+	status, _ = revokeToken(ctx, provURL, token, tenantID, revokeRequest{Sub: "user", JTI: "token"})
 	if status == http.StatusBadRequest {
 		checks = append(checks, metrics.CheckResult{Name: "revoke-both-fields", Status: metrics.CheckStatusPass})
 	} else {
@@ -597,7 +618,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 	}
 
 	// Send tenant B's JWT to tenant A's revocation endpoint
-	status, _ = revokeToken(ctx, gwURL, tenantBToken, tenantID, revokeRequest{JTI: "some-jti"})
+	status, _ = revokeToken(ctx, provURL, tenantBToken, tenantID, revokeRequest{JTI: "some-jti"})
 	if status == http.StatusForbidden {
 		checks = append(checks, metrics.CheckResult{Name: "revoke-tenant-mismatch", Status: metrics.CheckStatusPass})
 	} else {
@@ -609,7 +630,7 @@ func checkInvalidRevocations(ctx context.Context, run *TestRun, gwURL string, mi
 }
 
 // checkEdgeCases tests revocation edge cases.
-func checkEdgeCases(ctx context.Context, gwURL string, minter *auth.Minter, tenantID string, _ zerolog.Logger) []metrics.CheckResult {
+func checkEdgeCases(ctx context.Context, provURL string, minter *auth.Minter, tenantID string, _ zerolog.Logger) []metrics.CheckResult {
 	var checks []metrics.CheckResult
 
 	token, err := minter.MintWithClaims(auth.MintOptions{
@@ -622,7 +643,7 @@ func checkEdgeCases(ctx context.Context, gwURL string, minter *auth.Minter, tena
 
 	// Edge: revoke jti with no active connection → 200
 	noConnJTI := "no-conn-" + uuid.NewString()[:8]
-	status, revokeErr := revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: noConnJTI})
+	status, revokeErr := revokeToken(ctx, provURL, token, tenantID, revokeRequest{JTI: noConnJTI})
 	switch {
 	case revokeErr != nil:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-no-active-conn", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("revoke: %v", revokeErr)})
@@ -634,7 +655,7 @@ func checkEdgeCases(ctx context.Context, gwURL string, minter *auth.Minter, tena
 	}
 
 	// Edge: revoke same jti twice → 200 (idempotent)
-	status, revokeErr = revokeToken(ctx, gwURL, token, tenantID, revokeRequest{JTI: noConnJTI})
+	status, revokeErr = revokeToken(ctx, provURL, token, tenantID, revokeRequest{JTI: noConnJTI})
 	switch {
 	case revokeErr != nil:
 		checks = append(checks, metrics.CheckResult{Name: "revoke-idempotent", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("revoke: %v", revokeErr)})

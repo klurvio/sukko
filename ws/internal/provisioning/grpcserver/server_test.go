@@ -2,6 +2,7 @@ package grpcserver_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning"
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/grpcserver"
+	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/provisioning/testutil"
 	"github.com/klurvio/sukko/internal/shared/logging"
 	"github.com/klurvio/sukko/internal/shared/types"
@@ -96,19 +98,20 @@ func (m *mockChannelRulesStore) List(_ context.Context) ([]*types.TenantChannelR
 
 // testEnv holds all test infrastructure.
 type testEnv struct {
-	bus    *eventbus.Bus
-	client provisioningv1.ProvisioningInternalServiceClient
-	cancel context.CancelFunc
-	conn   *grpc.ClientConn
+	bus      *eventbus.Bus
+	client   provisioningv1.ProvisioningInternalServiceClient
+	cancel   context.CancelFunc
+	conn     *grpc.ClientConn
+	revStore *revocation.Store
 }
 
-// setupTestEnv creates a gRPC server with mock-store-backed service on bufconn.
-func setupTestEnv(t *testing.T) *testEnv {
+// newTestService builds a seeded mock-store-backed provisioning.Service + event bus.
+// Extracted so the required-field rejection test (TestNewServer_NilRevocationStore) can obtain
+// a valid svc/bus without the full bufconn env (§X — no duplicated construction).
+func newTestService(t *testing.T) (*provisioning.Service, *eventbus.Bus) {
 	t.Helper()
-
 	logger := zerolog.Nop()
 
-	// Build mock stores and seed test data
 	tenantStore := testutil.NewMockTenantStore()
 	keyStore := testutil.NewMockKeyStore()
 	routingRulesStore := testutil.NewMockRoutingRulesStore()
@@ -146,7 +149,6 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 
 	bus := eventbus.New(logger)
-
 	svc, svcErr := provisioning.NewService(provisioning.ServiceConfig{
 		TenantStore:       tenantStore,
 		KeyStore:          keyStore,
@@ -163,11 +165,23 @@ func setupTestEnv(t *testing.T) *testEnv {
 	if svcErr != nil {
 		t.Fatalf("NewService: %v", svcErr)
 	}
+	return svc, bus
+}
 
+// setupTestEnv creates a gRPC server with mock-store-backed service on bufconn.
+func setupTestEnv(t *testing.T) *testEnv {
+	t.Helper()
+
+	logger := zerolog.Nop()
+	svc, bus := newTestService(t)
+
+	revStore := revocation.New(logger)
 	srv, srvErr := grpcserver.NewServer(svc, bus, logger, grpcserver.ServerConfig{
 		MaxTenantsFetchLimit: 10000,
+		RevocationStore:      revStore, // required by NewServer; always constructed in production
 	})
 	if srvErr != nil {
+		revStore.Close()
 		t.Fatalf("NewServer: %v", srvErr)
 	}
 
@@ -203,13 +217,15 @@ func setupTestEnv(t *testing.T) *testEnv {
 		_ = conn.Close()
 		gs.Stop()
 		wg.Wait()
+		revStore.Close()
 	})
 
 	return &testEnv{
-		bus:    bus,
-		client: client,
-		cancel: cancel,
-		conn:   conn,
+		bus:      bus,
+		client:   client,
+		cancel:   cancel,
+		conn:     conn,
+		revStore: revStore,
 	}
 }
 
@@ -469,5 +485,88 @@ func TestWatchAPIKeys_Delta(t *testing.T) { //nolint:paralleltest // uses shared
 	// No API keys seeded, so delta should also have 0 keys.
 	if len(resp.GetApiKeys()) != 0 {
 		t.Errorf("expected 0 api keys in delta, got %d", len(resp.GetApiKeys()))
+	}
+}
+
+// TestNewServer_NilRevocationStore asserts NewServer rejects a nil RevocationStore. revStore is
+// always constructed in production (main.go), so a nil store is a wiring bug, not a valid
+// optional-absence — the required-field guard turns a re-omission into a startup error rather than
+// a silent Unimplemented. Structural regression guard (FR-005a): fails against an optional-store build.
+func TestNewServer_NilRevocationStore(t *testing.T) {
+	t.Parallel()
+	svc, bus := newTestService(t)
+	_, err := grpcserver.NewServer(svc, bus, zerolog.Nop(), grpcserver.ServerConfig{
+		MaxTenantsFetchLimit: 10000,
+		RevocationStore:      nil,
+	})
+	if err == nil {
+		t.Fatal("expected error for nil RevocationStore (required dependency)")
+	}
+}
+
+// TestWatchTokenRevocations_SnapshotAndDelta pins the snapshot-as-delta contract: the initial
+// message is a snapshot and every TokenRevocationsChanged delta carries the FULL current set. It
+// drives N concurrent revStore writers during an active stream so the store-writer / Snapshot()-reader
+// race is exercised under -race (FR-005b).
+func TestWatchTokenRevocations_SnapshotAndDelta(t *testing.T) { //nolint:paralleltest // uses shared gRPC test server
+	env := setupTestEnv(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	stream, err := env.client.WatchTokenRevocations(ctx, &provisioningv1.WatchTokenRevocationsRequest{})
+	if err != nil {
+		t.Fatalf("WatchTokenRevocations: %v", err)
+	}
+
+	// First message MUST be a snapshot (empty — no revocations yet).
+	snap, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv snapshot: %v", err)
+	}
+	if !snap.GetIsSnapshot() {
+		t.Errorf("first message IsSnapshot = false, want true (snapshot-on-connect)")
+	}
+
+	future := time.Now().Add(time.Hour).Unix()
+	const n = 8
+	var wg sync.WaitGroup
+	for i := range n {
+		jti := fmt.Sprintf("revoke-jti-%d", i)
+		wg.Go(func() {
+			defer logging.RecoverPanic(zerolog.Nop(), "revoke-writer", nil)
+			if rErr := env.revStore.Revoke(revocation.Entry{
+				TenantID:  "t1",
+				Type:      "token",
+				JTI:       jti,
+				RevokedAt: time.Now().Unix(),
+				ExpiresAt: future,
+			}); rErr != nil {
+				t.Errorf("revoke %s: %v", jti, rErr)
+			}
+			env.bus.Publish(eventbus.Event{Type: eventbus.TokenRevocationsChanged})
+		})
+	}
+	wg.Wait()
+
+	// Each delta is a FULL snapshot; drain until all N jtis are observed (snapshot-as-delta contract).
+	deadline := time.Now().Add(5 * time.Second)
+	seen := map[string]bool{}
+	for len(seen) < n && time.Now().Before(deadline) {
+		delta, rErr := stream.Recv()
+		if rErr != nil {
+			t.Fatalf("recv delta: %v", rErr)
+		}
+		if delta.GetIsSnapshot() {
+			t.Errorf("delta IsSnapshot = true, want false")
+		}
+		for _, r := range delta.GetRevocations() {
+			if r.GetJti() != "" {
+				seen[r.GetJti()] = true
+			}
+		}
+	}
+	if len(seen) != n {
+		t.Errorf("observed %d/%d revocations across deltas — snapshot-as-delta must carry the full set", len(seen), n)
 	}
 }

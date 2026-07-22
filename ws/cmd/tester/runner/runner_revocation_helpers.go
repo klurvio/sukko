@@ -38,13 +38,17 @@ type revokeRequest struct {
 // revokeTokenWithClient sends a token revocation request using the provided HTTP client.
 // Returns (statusCode, nil) on any completed HTTP exchange — callers must inspect the status code.
 // Returns (0, err) on network/request-build errors only.
-func revokeTokenWithClient(ctx context.Context, client *http.Client, gwURL, token, tenantID string, req revokeRequest) (int, error) {
+func revokeTokenWithClient(ctx context.Context, client *http.Client, baseURL, token, tenantID string, req revokeRequest) (int, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return 0, fmt.Errorf("revokeToken: marshal: %w", err)
 	}
+	// baseURL is normalized to http(s):// (httpURL is a no-op on an already-http URL). The revoke
+	// route is served ONLY by the provisioning admin API — the gateway does not proxy it. The validate
+	// suite passes the provisioning base URL (correct). soak/stress still pass the gateway URL, so their
+	// revokes hit an unregistered gateway route (404); that pre-existing mis-targeting is tracked in #199.
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		gwURL+"/api/v1/tenants/"+tenantID+"/tokens/revoke",
+		httpURL(baseURL)+"/api/v1/tenants/"+tenantID+"/tokens/revoke",
 		bytes.NewReader(body))
 	if err != nil {
 		return 0, fmt.Errorf("revokeToken: new request: %w", err)
@@ -60,9 +64,10 @@ func revokeTokenWithClient(ctx context.Context, client *http.Client, gwURL, toke
 	return resp.StatusCode, nil
 }
 
-// revokeToken sends a token revocation request via the gateway proxy.
-func revokeToken(ctx context.Context, gwURL, token, tenantID string, req revokeRequest) (int, error) {
-	return revokeTokenWithClient(ctx, &http.Client{Timeout: editionHTTPTimeout}, gwURL, token, tenantID, req)
+// revokeToken sends a token revocation request to the provisioning admin API
+// (POST /api/v1/tenants/{tenantID}/tokens/revoke — not proxied by the gateway).
+func revokeToken(ctx context.Context, baseURL, token, tenantID string, req revokeRequest) (int, error) {
+	return revokeTokenWithClient(ctx, &http.Client{Timeout: editionHTTPTimeout}, baseURL, token, tenantID, req)
 }
 
 // isErrorRateExceeded returns true when the error rate strictly exceeds the threshold.
@@ -154,4 +159,32 @@ func scrapeGatewayMetrics(ctx context.Context, metricsURL string) (map[string]fl
 		result[name] = total
 	}
 	return result, nil
+}
+
+// Readiness-gate bounds for the revocation stream (FR-007).
+const (
+	revocationStreamReadyTimeout  = 30 * time.Second
+	revocationStreamReadyInterval = 500 * time.Millisecond
+)
+
+// revocationStreamStateMetric is the gateway gauge that reports 1 when the WatchTokenRevocations
+// stream is connected (0 when disconnected/Unimplemented).
+const revocationStreamStateMetric = "gateway_token_revocation_stream_state"
+
+// waitForRevocationStreamReady blocks until the gateway's revocation stream reports connected (== 1),
+// so the suite never revokes before the gateway has received its snapshot (FR-007 — the cold-start
+// guard, mirroring the tenant-isolation warmup). Reuses the existing expfmt-based scrape/poll helpers
+// (no new metric parser). Returns an error on timeout or if the metrics endpoint is unreachable.
+// metricsBaseURL is the gateway metrics BASE (e.g. http://ws-gateway:3000); the "/metrics" path is
+// appended here, matching how soak_revocation/stress_revocation use run.Config.GatewayMetricsURL.
+func waitForRevocationStreamReady(ctx context.Context, metricsBaseURL string) error {
+	_, err := pollGaugesUntil(ctx,
+		func(ctx context.Context) (map[string]float64, error) {
+			return scrapeGatewayMetrics(ctx, metricsBaseURL+"/metrics")
+		},
+		revocationStreamStateMetric,
+		func(v float64) bool { return v == 1 },
+		revocationStreamReadyInterval, revocationStreamReadyTimeout,
+	)
+	return err
 }

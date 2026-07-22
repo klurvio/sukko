@@ -498,7 +498,7 @@ keypair.
 
 **Scenarios covered**:
 1. **Sub revocation**: revoke all tokens for a user by `sub` — connected client is
-   force-disconnected with close code 4001
+   force-disconnected with close code 1008 (Policy Violation)
 2. **JTI revocation**: revoke a specific token by `jti` — same close code
 3. **Invalid revocations**: Community edition gate — POST to `/tokens/revoke` returns
    HTTP 403 `{"code":"EDITION_LIMIT",...}`
@@ -1068,7 +1068,7 @@ HTTP/1.1 429 Too Many Requests
 ### 6.6 Force-disconnect on token revocation
 
 After calling `POST /tokens/revoke`, the connected client receives WebSocket close
-code `4001` within `revocationTimeout` (default: 5 seconds).
+code `1008` (Policy Violation) within `revocationTimeout` (default: 5 seconds).
 
 ### 6.7 Message history (Pro+)
 
