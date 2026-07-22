@@ -507,6 +507,7 @@ func main() {
 	)
 	grpcStreamServer, err := grpcserver.NewServer(svc, bus, structuredLogger, grpcserver.ServerConfig{
 		MaxTenantsFetchLimit:  cfg.MaxTenantsFetchLimit,
+		RevocationStore:       revStore,
 		PushCredentialsRepo:   pushCredentialsRepo,
 		PushChannelConfigRepo: pushChannelConfigRepo,
 		CurrentLicenseKey:     licenseHandler.CurrentKey,

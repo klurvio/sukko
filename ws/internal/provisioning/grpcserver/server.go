@@ -41,8 +41,10 @@ type ServerConfig struct {
 	// Optional — when nil, WatchLicense returns Unimplemented.
 	CurrentLicenseKey func() string
 
-	// RevocationStore is the in-memory token revocation store.
-	// Optional — when nil, WatchTokenRevocations returns Unimplemented.
+	// RevocationStore is the in-memory token revocation store. REQUIRED: provisioning always
+	// constructs it (main.go), so a nil store is a wiring bug, not a valid optional-absence —
+	// NewServer rejects nil (a re-omission becomes a startup Fatal rather than a silent
+	// Unimplemented that disables the §IX revocation feature).
 	RevocationStore *revocation.Store
 
 	// SlugRenameHoldPeriod is how long after a slug rename the previous slug is
@@ -86,6 +88,9 @@ func NewServer(service *provisioning.Service, eventBus *eventbus.Bus, logger zer
 	}
 	if cfg.MaxTenantsFetchLimit <= 0 {
 		return nil, errors.New("grpc server: MaxTenantsFetchLimit must be > 0")
+	}
+	if cfg.RevocationStore == nil {
+		return nil, errors.New("grpc server: revocation store is required")
 	}
 
 	return &Server{
@@ -798,10 +803,7 @@ func (s *Server) WatchLicense(_ *provisioningv1.WatchLicenseRequest, stream grpc
 // WatchTokenRevocations streams token revocations. Sends a snapshot on connect,
 // then streams deltas when tokens are revoked via event bus.
 func (s *Server) WatchTokenRevocations(_ *provisioningv1.WatchTokenRevocationsRequest, stream grpc.ServerStreamingServer[provisioningv1.WatchTokenRevocationsResponse]) error {
-	if s.revocationStore == nil {
-		return status.Error(codes.Unimplemented, "token revocation not configured")
-	}
-
+	// s.revocationStore is guaranteed non-nil (NewServer requires it) — no Unimplemented gate.
 	ctx := stream.Context()
 	logger := s.logger.With().Str("rpc", "WatchTokenRevocations").Logger()
 
