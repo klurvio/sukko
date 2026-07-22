@@ -1,11 +1,5 @@
 # Sukko E2E Testing Guide
 
-> **Publication gate**: this guide is complete but the PR MUST NOT be merged until
-> `fix/tester-admin-key-wiring` is resolved — suites requiring admin keypair
-> (`provisioning`, `tenant-isolation`, `token-revocation`) cannot be demonstrated
-> end-to-end until that fix lands (SC-008). Create the file and open the PR now;
-> mark it Draft and add a blocker reference to the wiring fix PR.
-
 This guide covers end-to-end verification of Sukko using the tester service and
 `sukko-cli`. It is the normative reference for pre-release validation.
 
@@ -197,10 +191,10 @@ Named anchor cells wrap the runner with their suite sets:
 
 | Cell (`task e2e:cell:<name>`) | Edition | Backend | Type | Suites / assertion |
 |---|---|---|---|---|
-| `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits` |
-| `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish` |
+| `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits tenant-isolation` |
+| `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation` |
 | `enterprise-direct` | Enterprise | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish` |
-| `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish` |
+| `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish tenant-isolation` |
 | `enterprise-kafka` | Enterprise | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish` |
 | `community-kafka-refused` | Community (no license) | kafka | **negative** | boot MUST fail: ws-server exits non-zero with the kafka edition-gate error |
 | `expired-direct` | Pro, expired (`-1d`) → Community | direct | degradation | gate `edition=community`+`expired=true`; suite `edition-limits` |
@@ -217,6 +211,18 @@ coverage. `rest-publish` is likewise **Pro-gated** (`/api/v1/publish` shares the
 gate), so it runs on the four paid cells only — never on `community-direct`, `expired-direct`
 (degraded to Community), or `community-kafka-refused`. `task e2e:validate-battery` remains an
 alias for the `community-direct` cell.
+
+**`tenant-isolation` gating.** The cross-tenant isolation suite (§IX) is gated into one kafka cell
+(`pro-kafka` — where its kafka consumer-join cold-start race lived) plus two direct cells: `pro-direct`
+(isolates the backend axis vs `pro-kafka`) and `community-direct` (verifies the guarantee on the
+most-constrained edition). It is **edition-agnostic** — its routing-rules setup is edition-gate-tolerant
+(routing rules are Pro-gated and moot on the direct backend, so the Community 403 is skipped), so it runs
+on all editions; the `enterprise-*` cells are intentionally not gated (Enterprise exercises the identical
+isolation/routing code path as Pro — redundant grid runtime, not new coverage). The suite is **fail-closed**
+(a missing admin provider errors rather than skips), so it needs no allow-list entry; both directional
+checks are forced present-and-`pass` via `REQUIRE_PASS`. Each measured publish is preceded by a per-tenant
+delivery-liveness warmup that absorbs the kafka cold-start (the same `waitForDeliveryLive` every other
+delivery suite uses), replacing a fixed sleep.
 
 **Negative cell (`community-kafka-refused`).** Instead of running suites, it asserts the
 stack REFUSES to boot for the right reason: `e2e_assert_boot_refused` reuses the boot path
@@ -257,7 +263,7 @@ the end. The generic guard is `e2e_battery_verdict` and the negative-cell guard 
 `assert_boot_refused_verdict` (both fixture-tested by
 `taskfiles/e2e/battery_guard_test.sh`).
 
-**Not yet in the grid (tracked for triage):** `tenant-isolation`,
+**Not yet in the grid (tracked for triage):**
 `token-revocation`, `api-key`, `upgrade`, `provisioning`, `ratelimit` —
 each surfaced a real first-contact finding when first run against a live gateway (see the
 validate-battery backlog issue). `kafka-ingest` runs in its own kafka-mode job and `push` in
@@ -466,11 +472,20 @@ Suite: provisioning  Status: error
 sukko test validate --suite tenant-isolation
 ```
 
-Validates cross-tenant message isolation: creates two tenants, publishes to one,
-asserts the other receives nothing. Requires admin keypair.
+Validates cross-tenant message isolation: creates two tenants A and B with identical
+channel/routing rules and one subscribed user each, then asserts each tenant's publish reaches
+ONLY its own user (positive) and never the other tenant's user (negative — the security-critical
+half, §IX). Before the measured publishes, each tenant's own delivery path is proven live by a
+per-tenant **delivery-liveness warmup** (`waitForDeliveryLive`, the same helper the other delivery
+suites use) that absorbs the Kafka consumer-join `AtEnd` cold-start; both users' trackers are then
+cleared so warmup probes can neither satisfy a positive assertion nor mask a leak. The measured
+phase is the sole authoritative leak detector. Routing-rules setup is edition-gate-tolerant (routing
+rules are Pro-gated and moot on the direct backend, so the Community 403 is skipped), so the suite
+runs on all editions. Requires admin keypair.
 
 **Minimum edition**: Community  
-**Admin key**: required
+**Admin key**: required  
+**Grid cells**: `pro-kafka`, `pro-direct`, `community-direct` (both directional checks `REQUIRE_PASS`)
 
 ### 2.13 token-revocation
 
