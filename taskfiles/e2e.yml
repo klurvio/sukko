@@ -385,10 +385,14 @@ tasks:
         vars:
           EDITION: community
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect auth edition-limits"
+          SUITES: "channels pubsub ordering reconnect auth edition-limits tenant-isolation"
           # The connection-boundary sub-check honestly skips (Community's 500-conn limit exceeds
           # the 100-conn test cap); tolerate ONLY that named skip. Any other skip reds the cell.
           ALLOWED_SKIPS: "edition-limits:connection limit rejection"
+          # tenant-isolation is fail-closed (errors, never skips) so needs no ALLOWED_SKIPS; force both
+          # isolation checks present-and-pass (a silently-absent check is not caught by the base verdict).
+          # tenant-isolation runs on Community because its routing-rules setup is edition-gate-tolerant.
+          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives"
 
   cell:pro-kafka:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."
@@ -397,10 +401,10 @@ tasks:
         vars:
           EDITION: pro
           BACKEND: kafka
-          SUITES: "channels pubsub ordering reconnect sse auth rest-publish"
-          # Force both rest-publish delivery checks present-and-pass (a silently-absent check is not
-          # caught by the base verdict) — this is the per-push kafka-mode delivery regression guard.
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive"
+          SUITES: "channels pubsub ordering reconnect sse auth rest-publish tenant-isolation"
+          # Force both rest-publish AND tenant-isolation delivery checks present-and-pass (a
+          # silently-absent check is not caught by the base verdict) — per-push delivery/isolation guard.
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives"
 
   cell:enterprise-kafka:
     desc: "Grid cell — Enterprise/kafka (full green set under an Enterprise license)."
@@ -422,12 +426,12 @@ tasks:
         vars:
           EDITION: pro
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish"
+          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation"
           # Pro's 10000-conn limit exceeds the 100-conn test cap → the boundary sub-check skips.
           ALLOWED_SKIPS: "edition-limits:connection limit rejection"
-          # Force both rest-publish delivery checks present-and-pass (the base verdict catches only
-          # skip/fail/error, not a silently-absent check).
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive"
+          # Force both rest-publish AND tenant-isolation delivery checks present-and-pass (the base
+          # verdict catches only skip/fail/error, not a silently-absent check).
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives"
 
   cell:enterprise-direct:
     desc: "Grid cell — Enterprise/direct (full green set + edition-limits; unlimited path, no skips)."

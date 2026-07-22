@@ -20,6 +20,12 @@ import (
 // defaultDeliveryTimeout is the maximum time to wait for message delivery.
 const defaultDeliveryTimeout = 5 * time.Second
 
+// misrouteGraceWindow is the pause after all expected receivers have the message, giving a
+// misrouted copy time to arrive at a must-NOT-receive user before buildResult snapshots
+// MisroutedTo. This is the grace window the tenant-isolation negative assertion relies on
+// (NFR-003): its value MUST NOT be reduced.
+const misrouteGraceWindow = 100 * time.Millisecond
+
 // Delivery-liveness warmup bounds (see waitForDeliveryLive). Sized for the Kafka cold-start
 // window: a freshly-provisioned tenant's ws-server consumer joins its topic at AtEnd only after a
 // control-plane propagation delay (WatchTopics delta → topic create → AddConsumeTopics), so early
@@ -298,7 +304,7 @@ func (e *PubSubEngine) PublishAndVerify(
 			}
 			if allReceived {
 				// Small grace period for misrouted messages to arrive
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(misrouteGraceWindow)
 				return e.buildResult(channel, msgID, start, expectedSet, allUsers)
 			}
 		}
