@@ -44,6 +44,17 @@ const editionHTTPTimeout = 10 * time.Second
 const (
 	errCodeEditionLimit        = "EDITION_LIMIT"          // feature gate (403)
 	errCodeTooManyRoutingRules = "TOO_MANY_ROUTING_RULES" // routing-rule count boundary (400, handler config validator)
+
+	// Additional routing-rules and auth error codes asserted by the provisioning
+	// routing-rules coverage suite (validate_provisioning_routing.go). Mirrored from
+	// the handler's service-private constants (internal/provisioning/api/handlers.go),
+	// matched exactly via extractErrorCode on the `code` field.
+	errCodeTopicNotProvisioned          = "TOPIC_NOT_PROVISIONED"           // routing write referencing an unprovisioned topic suffix (400)
+	errCodeInsufficientRole             = "INSUFFICIENT_ROLE"               // RequireRole rejection on a user-role write (403)
+	errCodeTenantMismatch               = "TENANT_MISMATCH"                 // RequireTenant cross-tenant rejection (403)
+	errCodeRoutingRuleDuplicatePattern  = "ROUTING_RULE_DUPLICATE_PATTERN"  // POST dup pattern (409); PUT internal dup (400)
+	errCodeRoutingRuleDuplicatePriority = "ROUTING_RULE_DUPLICATE_PRIORITY" // POST dup priority (409)
+	errCodeRoutingRuleValidation        = "ROUTING_RULE_VALIDATION_ERROR"   // empty topics / too-many topics / bad pattern (400)
 )
 
 // ConnLimitRejectionCheckName is the check name emitted by the connection-boundary

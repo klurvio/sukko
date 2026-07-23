@@ -385,14 +385,17 @@ tasks:
         vars:
           EDITION: community
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect auth edition-limits tenant-isolation"
-          # The connection-boundary sub-check honestly skips (Community's 500-conn limit exceeds
-          # the 100-conn test cap); tolerate ONLY that named skip. Any other skip reds the cell.
-          ALLOWED_SKIPS: "edition-limits:connection limit rejection"
-          # tenant-isolation is fail-closed (errors, never skips) so needs no ALLOWED_SKIPS; force both
-          # isolation checks present-and-pass (a silently-absent check is not caught by the base verdict).
-          # tenant-isolation runs on Community because its routing-rules setup is edition-gate-tolerant.
-          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives"
+          SUITES: "channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning"
+          # edition-limits: the connection-boundary sub-check honestly skips (Community's 500-conn limit
+          # exceeds the 100-conn test cap). provisioning: on Community the routing-rules API is feature-gated
+          # (Pro) and quota/lifecycle/audit are Pro/Enterprise-gated, so those checks emit explicit skips —
+          # every one enumerated here (an unenumerated skip reds the cell). routing cross-tenant mismatch and
+          # routing edition gate RUN on Community (see REQUIRE_PASS) and are NOT skips.
+          ALLOWED_SKIPS: "edition-limits:connection limit rejection;provisioning:set routing rules;provisioning:get routing rules;provisioning:delete routing rules;provisioning:get quota;provisioning:update quota;provisioning:suspend tenant;provisioning:reactivate tenant;provisioning:get audit log;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization"
+          # tenant-isolation is fail-closed (errors, never skips); force both isolation checks present-and-pass.
+          # provisioning: routing cross-tenant mismatch (TENANT_MISMATCH fires pre-edition-gate → runs all
+          # editions) and routing edition gate (the Community-only feature-gate assertion) must be present-and-pass.
+          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate"
 
   cell:pro-kafka:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."
@@ -401,10 +404,13 @@ tasks:
         vars:
           EDITION: pro
           BACKEND: kafka
-          SUITES: "channels pubsub ordering reconnect sse auth rest-publish tenant-isolation"
-          # Force both rest-publish AND tenant-isolation delivery checks present-and-pass (a
-          # silently-absent check is not caught by the base verdict) — per-push delivery/isolation guard.
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives"
+          SUITES: "channels pubsub ordering reconnect sse auth rest-publish tenant-isolation provisioning"
+          # provisioning: `get audit log` is Enterprise-gated → skips on Pro (the only routing/prov skip here;
+          # a non-routing check, so FR-011a's "no routing ALLOWED_SKIPS on Pro" holds).
+          ALLOWED_SKIPS: "provisioning:get audit log"
+          # Force rest-publish + tenant-isolation delivery checks AND every Pro-reachable provisioning routing
+          # check present-and-pass (the base verdict catches only skip/fail/error, not a silently-absent check).
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization"
 
   cell:enterprise-kafka:
     desc: "Grid cell — Enterprise/kafka (full green set under an Enterprise license)."
@@ -426,12 +432,13 @@ tasks:
         vars:
           EDITION: pro
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation"
+          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation provisioning"
           # Pro's 10000-conn limit exceeds the 100-conn test cap → the boundary sub-check skips.
-          ALLOWED_SKIPS: "edition-limits:connection limit rejection"
-          # Force both rest-publish AND tenant-isolation delivery checks present-and-pass (the base
-          # verdict catches only skip/fail/error, not a silently-absent check).
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives"
+          # provisioning: `get audit log` is Enterprise-gated → skips on Pro (non-routing skip).
+          ALLOWED_SKIPS: "edition-limits:connection limit rejection;provisioning:get audit log"
+          # Force rest-publish + tenant-isolation delivery checks AND every Pro-reachable provisioning routing
+          # check present-and-pass. Routing gates identically off-Kafka (noop topic registry, main.go:216).
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization"
 
   cell:enterprise-direct:
     desc: "Grid cell — Enterprise/direct (full green set + edition-limits; unlimited path, no skips)."

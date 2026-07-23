@@ -224,6 +224,17 @@ checks are forced present-and-`pass` via `REQUIRE_PASS`. Each measured publish i
 delivery-liveness warmup that absorbs the kafka cold-start (the same `waitForDeliveryLive` every other
 delivery suite uses), replacing a fixed sleep.
 
+**`provisioning` gating.** The suite (CRUD + e2e-unique routing-rules coverage, §2.11) is gated into
+`community-direct`, `pro-kafka`, and `pro-direct` — never the `enterprise-*` cells (Enterprise exercises the
+identical routing code path, no new coverage) or `expired-direct`/`community-kafka-refused`. Routing rules are
+Pro-gated and the topic registry is noop-backed on both backends (`provisioning/main.go`), so `pro-direct`
+gates identically to `pro-kafka`; both cells `REQUIRE_PASS` every Pro-reachable routing check and
+`ALLOWED_SKIPS` the Enterprise-gated `get audit log`. On `community-direct` the routing checks and the
+existing Pro/Enterprise-gated CRUD checks (`get/update quota`, `suspend/reactivate tenant`, `get audit log`)
+emit explicit skips — each enumerated in `ALLOWED_SKIPS` — while `routing cross-tenant mismatch` (pre-edition-gate
+`TENANT_MISMATCH`) and `routing edition gate` (the Community feature-gate assertion) are forced present-and-`pass`
+via `REQUIRE_PASS`. Every skip is exact-code (`EDITION_LIMIT`) discriminated, never a pass.
+
 **Negative cell (`community-kafka-refused`).** Instead of running suites, it asserts the
 stack REFUSES to boot for the right reason: `e2e_assert_boot_refused` reuses the boot path
 with a capped `--wait`, requires the `up` to fail, then — before teardown — inspects the
@@ -285,7 +296,7 @@ load/soak/stress are scale tests.
 | 7 | `ratelimit` | Community | no | Rate limit enforcement |
 | 8 | `sse` | Community | no | SSE transport validation |
 | 9 | `rest-publish` | Pro | no | REST publish delivery (`/api/v1/publish` is Pro-gated) |
-| 10 | `provisioning` | Community | **yes** | Provisioning API CRUD |
+| 10 | `provisioning` | Community | **yes** | Provisioning API CRUD + e2e-unique routing-rules coverage (topic gate, role/tenant isolation, error-code mapping, pagination, normalization). Gated into `community-direct`/`pro-kafka`/`pro-direct` (§2.11) |
 | 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation |
 | 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect |
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
@@ -456,6 +467,33 @@ sukko test validate --suite provisioning
 Validates the provisioning API CRUD lifecycle: tenant create/get/update/list, key
 create/revoke, API key create/revoke, routing rules create/list/delete. Requires an
 admin keypair — see §1.2.
+
+Beyond CRUD, the suite adds **e2e-unique routing-rules coverage** — behavior only a live
+stack exercises (middleware composition, the topic-existence registry, HTTP error-code
+mapping, read normalization); pattern-syntax combinatorics stay in unit tests. The 14 routing
+checks (`routing topic gate`, `routing post/put duplicate pattern`, `routing post duplicate
+priority`, `routing rule validation`, `routing role gate read/write`, `routing cross-tenant
+mismatch`, `routing delete idempotent`, `routing get pagination`, `routing get limit cap`,
+`routing put echo`, `routing star normalization`, `routing edition gate`) each assert an exact
+HTTP status **and** error `code`, and pair every negative with a verified allowed (2xx) case.
+`routing cross-tenant mismatch` provisions a second tenant B (eagerly cleaned up) and drives an
+A-scoped `user`-role token against B → 403 `TENANT_MISMATCH`.
+
+**Edition reachability**: routing rules are Pro-gated (`ChannelTopicRouting`), so on **Community**
+the routing checks — plus the existing Pro/Enterprise-gated checks (`get/update quota`,
+`suspend/reactivate tenant`, `get audit log`) — emit an explicit **skip** (never a pass), enumerated
+in the cell's `ALLOWED_SKIPS`. Two routing checks run on **all** editions: `routing cross-tenant
+mismatch` (`TENANT_MISMATCH` fires before the edition gate) and `routing edition gate` (the
+Community-only feature-gate assertion — distinct from the `edition-limits` suite's `routing rules
+feature gate`, which asserts the count boundary). `get audit log` is Enterprise-gated, so it skips
+on Pro too. The per-tenant rule **count** limit (`TOO_MANY_ROUTING_RULES`) is owned by the
+`edition-limits` suite, not duplicated here.
+
+**Grid placement**: gated into `community-direct`, `pro-kafka`, `pro-direct`. The Pro cells
+`REQUIRE_PASS` all Pro-reachable routing checks (the topic registry is noop-backed on both backends,
+`provisioning/main.go`, so `pro-direct` behaves identically to `pro-kafka`) and `ALLOWED_SKIPS`
+`provisioning:get audit log`; `community-direct` `REQUIRE_PASS`es `routing cross-tenant mismatch` +
+`routing edition gate` and `ALLOWED_SKIPS` the ~18 gated checks.
 
 **Minimum edition**: Community  
 **Admin key**: required (`TESTER_ADMIN_KEY_FILE` + `TESTER_ADMIN_KEY_ID`)

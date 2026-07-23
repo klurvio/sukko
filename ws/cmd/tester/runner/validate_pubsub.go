@@ -38,8 +38,12 @@ var testRoutingRules = []map[string]any{
 // isRoutingRulesEditionGated reports whether a SetRoutingRules error is the
 // provisioning RequireFeature gate (HTTP 403, code EDITION_LIMIT, message
 // "This feature requires <edition> edition or higher"). Matched narrowly on the
-// feature-gate message so the per-tenant rule COUNT limit — same EDITION_LIMIT
-// code, different message — is never mistaken for it.
+// feature-gate message so the per-tenant rule COUNT boundary is never mistaken
+// for it: that boundary is a DISTINCT rejection — 400 TOO_MANY_ROUTING_RULES
+// from the ReplaceRoutingRules handler's config count validator, which runs
+// before the service-level edition check (edition_limits.go:33-46). The
+// service-level 403 EDITION_LIMIT_ROUTING_RULES_PER_TENANT is unreachable at
+// default config, so the count path never surfaces as EDITION_LIMIT.
 func isRoutingRulesEditionGated(err error) bool {
 	return err != nil &&
 		strings.Contains(err.Error(), "EDITION_LIMIT") &&

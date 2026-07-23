@@ -179,22 +179,37 @@ func TestSecondarySetupCallers_PropagateProvider(t *testing.T) { //nolint:parall
 		t.Fatal("authResult is nil — auth.Setup() failed")
 	}
 
-	// Assert that all captured admin JWT kids match the configured kid.
+	// Assert that admin-signed requests use the propagated admin kid. The suite now also emits
+	// intentional NON-admin tokens (validateProvisioningRouting mints user-role and cross-tenant
+	// tokens via setupA/setupB.Minter, kid "tester-<testID>...") for the FR-004/FR-005 role and
+	// tenant-isolation checks — those are expected and are NOT admin requests. Every captured kid
+	// must therefore be either the propagated admin kid OR a tester-minter kid; crucially, NONE
+	// may be an "ephemeral-" kid — an ephemeral kid means a secondary auth.Setup silently
+	// generated its own keypair instead of propagating the admin provider (the failure guarded).
 	kids := m.kidsSeenSnapshot()
 	if len(kids) == 0 {
 		t.Fatal("no JWT kids captured — mock server never received admin requests")
 	}
+	adminKidCount := 0
 	for i, kid := range kids {
-		if kid != "expected-kid" {
-			t.Errorf("request[%d]: kid = %q, want %q (secondary setup used wrong provider)", i, kid, "expected-kid")
+		switch {
+		case kid == "expected-kid":
+			adminKidCount++
+		case strings.HasPrefix(kid, "tester-"):
+			// Intentional user-role / cross-tenant token minted by the suite — not an admin request.
+		default:
+			t.Errorf("request[%d]: kid = %q, want %q or a tester-minter kid (secondary setup used wrong provider)", i, kid, "expected-kid")
+		}
+		if strings.HasPrefix(kid, "ephemeral-") {
+			t.Errorf("request[%d]: kid = %q is ephemeral — secondary auth.Setup did not propagate the admin provider", i, kid)
 		}
 	}
 
-	// Verify the secondary setup call (from validateProvisioning) used the same provider.
-	// The secondary setup creates its own tenant — expect at least 2 CreateTenant calls
-	// (one from primary, one from secondary validateProvisioning setup).
-	if len(kids) < 2 {
-		t.Errorf("expected ≥2 admin requests (primary + secondary setup), got %d", len(kids))
+	// Verify the secondary setup calls (validateProvisioning + the routing block's tenant B) used
+	// the propagated provider: expect ≥2 admin-signed requests carrying "expected-kid" (primary
+	// setup + secondary setup CreateTenant, at minimum).
+	if adminKidCount < 2 {
+		t.Errorf("expected ≥2 admin requests with kid %q (primary + secondary setup), got %d", "expected-kid", adminKidCount)
 	}
 }
 
