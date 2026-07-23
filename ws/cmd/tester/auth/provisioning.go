@@ -284,6 +284,119 @@ func (c *ProvisioningClient) DeleteRoutingRules(ctx context.Context, tenantID st
 	return nil
 }
 
+// --- Raw routing-rules methods for the routing-rules coverage suite (FR-015) ---
+//
+// These return (status int, err error) matching SetRoutingRulesRaw; on a >=400 response the
+// error embeds the response body via readError's "HTTP %d: %s" convention so callers can
+// derive the `code` field with extractErrorCode(err.Error()). Token variants set
+// Authorization: Bearer <token> per the GetTenant precedent (no admin Provider); the admin
+// variant signs via setHeaders. There is no dual-purpose "empty token means admin" parameter
+// (Constitution XV) — admin and token-parameterized are separate methods.
+
+// routingRulesPath is the routing-rules subpath for a tenant.
+func (c *ProvisioningClient) routingRulesPath(tenantID string) string {
+	return c.baseURL + "/api/v1/tenants/" + tenantID + "/routing-rules"
+}
+
+// doRawAdmin issues an admin-signed request with an optional JSON body and returns the status.
+// On a >=400 response it returns the status plus a readError-wrapped error embedding the body.
+func (c *ProvisioningClient) doRawAdmin(ctx context.Context, method, url, operation string, payload []byte) (int, error) {
+	var bodyReader io.Reader = http.NoBody
+	if payload != nil {
+		bodyReader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err != nil {
+		return 0, fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	c.setHeaders(req)
+	return c.doRaw(req, operation)
+}
+
+// doRawWithToken issues a request authenticated with an explicit bearer token (not the admin
+// Provider) and an optional JSON body, returning the status; >=400 embeds the body in the error.
+func (c *ProvisioningClient) doRawWithToken(ctx context.Context, method, url, token, operation string, payload []byte) (int, error) {
+	var bodyReader io.Reader = http.NoBody
+	if payload != nil {
+		bodyReader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err != nil {
+		return 0, fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	return c.doRaw(req, operation)
+}
+
+// doRaw executes req and returns the HTTP status; a >=400 status yields a readError-wrapped
+// error whose text embeds the response body ("HTTP %d: %s") for extractErrorCode.
+func (c *ProvisioningClient) doRaw(req *http.Request, operation string) (int, error) {
+	// The request URL is always c.baseURL (the operator-configured provisioning API) + a fixed
+	// path + a tenant slug; the Authorization bearer is a JWT the tester itself mints, never
+	// attacker-controlled input. No untrusted data reaches the URL.
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		return resp.StatusCode, c.readError(operation, resp)
+	}
+	// Drain body so the connection can be reused.
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode, nil
+}
+
+// AddRoutingRuleRaw POSTs a single routing rule as admin and returns the HTTP status.
+func (c *ProvisioningClient) AddRoutingRuleRaw(ctx context.Context, tenantID string, rule map[string]any) (int, error) {
+	body, err := json.Marshal(map[string]any{"rule": rule})
+	if err != nil {
+		return 0, fmt.Errorf("add routing rule: marshal: %w", err)
+	}
+	return c.doRawAdmin(ctx, http.MethodPost, c.routingRulesPath(tenantID), "add routing rule", body)
+}
+
+// AddRoutingRuleRawWithToken POSTs a single routing rule using an explicit bearer token.
+func (c *ProvisioningClient) AddRoutingRuleRawWithToken(ctx context.Context, tenantID, token string, rule map[string]any) (int, error) {
+	body, err := json.Marshal(map[string]any{"rule": rule})
+	if err != nil {
+		return 0, fmt.Errorf("add routing rule: marshal: %w", err)
+	}
+	return c.doRawWithToken(ctx, http.MethodPost, c.routingRulesPath(tenantID), token, "add routing rule", body)
+}
+
+// SetRoutingRulesRawWithToken PUTs a routing-rules replacement using an explicit bearer token.
+func (c *ProvisioningClient) SetRoutingRulesRawWithToken(ctx context.Context, tenantID, token string, rules []map[string]any) (int, error) {
+	body, err := json.Marshal(map[string]any{"rules": rules})
+	if err != nil {
+		return 0, fmt.Errorf("set routing rules: marshal: %w", err)
+	}
+	return c.doRawWithToken(ctx, http.MethodPut, c.routingRulesPath(tenantID), token, "set routing rules", body)
+}
+
+// DeleteRoutingRulesRaw DELETEs routing rules as admin and returns the HTTP status. Unlike
+// DeleteRoutingRules (which tolerates 404), this surfaces the exact status so the idempotent
+// second-delete probe can assert 200 (the service has no not-found branch — handlers.go:560-572).
+func (c *ProvisioningClient) DeleteRoutingRulesRaw(ctx context.Context, tenantID string) (int, error) {
+	return c.doRawAdmin(ctx, http.MethodDelete, c.routingRulesPath(tenantID), "delete routing rules", nil)
+}
+
+// GetRoutingRulesWithToken GETs routing rules using an explicit bearer token and returns the
+// HTTP status (used to assert user-role GET is allowed). Delegates to doRawWithToken: a 2xx
+// yields (status, nil); a >=400 yields (status, err) with the body embedded for extractErrorCode.
+func (c *ProvisioningClient) GetRoutingRulesWithToken(ctx context.Context, tenantID, token string) (int, error) {
+	return c.doRawWithToken(ctx, http.MethodGet, c.routingRulesPath(tenantID), token, "get routing rules", nil)
+}
+
+// GetRoutingRulesPage GETs routing rules as admin with a ?limit=N query and returns the raw
+// JSON body (used to assert pagination honoring and the max-page-limit cap echo).
+func (c *ProvisioningClient) GetRoutingRulesPage(ctx context.Context, tenantID string, limit int) ([]byte, error) {
+	path := fmt.Sprintf("/api/v1/tenants/%s/routing-rules?limit=%d", tenantID, limit)
+	return c.doGet(ctx, path, "get routing rules")
+}
+
 // ListTenants fetches the tenant list. Returns raw JSON response body.
 func (c *ProvisioningClient) ListTenants(ctx context.Context) ([]byte, error) {
 	return c.doGet(ctx, "/api/v1/tenants", "list tenants")

@@ -8,6 +8,7 @@ import (
 
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
+	"github.com/klurvio/sukko/internal/shared/routing"
 	"github.com/rs/zerolog"
 )
 
@@ -30,6 +31,17 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 
 	provClient := setup.ProvClient
 	tenantID := setup.TenantID
+
+	// Fetch the edition once. Drives the gate-tolerant classification of the edition-gated checks
+	// (routing rules, quota, lifecycle, audit) and the routing block's Community-only branches.
+	// A fetch failure is non-fatal — treat as unknown edition; the gate-tolerant wrapper still
+	// classifies each check from its own response (R3/R5).
+	edition := ""
+	if info, edErr := fetchEditionFrom(ctx, run.Config.ProvisioningURL); edErr != nil {
+		logger.Debug().Err(edErr).Msg("provisioning /edition unreachable — edition-gated checks classify from response only")
+	} else {
+		edition = info.Edition
+	}
 
 	var checks []metrics.CheckResult
 
@@ -124,33 +136,42 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 		return nil
 	}))
 
-	// 8. Set routing rules
-	checks = append(checks, provCheck("set routing rules", func() error {
+	// 8. Set routing rules (edition-gated → gate-tolerant: skips on Community, R5)
+	checks = append(checks, provRoutingCheck("set routing rules", func() error {
 		if err := provClient.SetRoutingRules(ctx, tenantID, testRoutingRules); err != nil {
 			return fmt.Errorf("set routing rules: %w", err)
 		}
 		return nil
 	}))
 
-	// 9. Get routing rules
-	checks = append(checks, provCheck("get routing rules", func() error {
+	// 9. Get routing rules (edition-gated → gate-tolerant)
+	checks = append(checks, provRoutingCheck("get routing rules", func() error {
 		body, err := provClient.GetRoutingRules(ctx, tenantID)
 		if err != nil {
 			return fmt.Errorf("get routing rules: %w", err)
 		}
-		if !strings.Contains(string(body), "test-default") {
-			return fmt.Errorf("expected 'test-default' topic in rules, got: %s", string(body))
+		// testRoutingRules writes topics:[routing.DefaultTopicSuffix] ("default"), so a
+		// non-vacuous round-trip asserts that suffix appears in the GET body. The prior
+		// literal "test-default" never matched the fixture and reddened the suite (FR-001).
+		if !strings.Contains(string(body), routing.DefaultTopicSuffix) {
+			return fmt.Errorf("expected %q topic in rules, got: %s", routing.DefaultTopicSuffix, string(body))
 		}
 		return nil
 	}))
 
-	// 10. Delete routing rules
-	checks = append(checks, provCheck("delete routing rules", func() error {
+	// 10. Delete routing rules (edition-gated → gate-tolerant). Its populated delete pairs with
+	// the routing block's `routing delete idempotent` empty-delete ([[one-sided-green]]).
+	checks = append(checks, provRoutingCheck("delete routing rules", func() error {
 		if err := provClient.DeleteRoutingRules(ctx, tenantID); err != nil {
 			return fmt.Errorf("delete routing rules: %w", err)
 		}
 		return nil
 	}))
+
+	// --- E2E-unique routing-rules coverage block (FR-002…FR-007), placed immediately after
+	// check 10 so its idempotent-delete pairs with check 10's populated delete. On Community the
+	// routing-rules API is feature-gated; the block's checks skip explicitly (never fail).
+	checks = append(checks, validateProvisioningRouting(ctx, run, setup, edition, logger)...)
 
 	// 11. Set channel rules
 	checks = append(checks, provCheck("set channel rules", func() error {
@@ -180,24 +201,24 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 		return nil
 	}))
 
-	// 14. Get quota
-	checks = append(checks, provCheck("get quota", func() error {
+	// 14. Get quota (Pro-gated → gate-tolerant: skips on Community, R5)
+	checks = append(checks, provRoutingCheck("get quota", func() error {
 		if _, err := provClient.GetQuota(ctx, tenantID); err != nil {
 			return fmt.Errorf("get quota: %w", err)
 		}
 		return nil
 	}))
 
-	// 15. Update quota
-	checks = append(checks, provCheck("update quota", func() error {
+	// 15. Update quota (Pro-gated → gate-tolerant)
+	checks = append(checks, provRoutingCheck("update quota", func() error {
 		if err := provClient.UpdateQuota(ctx, tenantID, map[string]any{"max_connections": 500}); err != nil {
 			return fmt.Errorf("update quota: %w", err)
 		}
 		return nil
 	}))
 
-	// 16. Get audit log
-	checks = append(checks, provCheck("get audit log", func() error {
+	// 16. Get audit log (Enterprise-gated → gate-tolerant: skips on Pro and Community, R5)
+	checks = append(checks, provRoutingCheck("get audit log", func() error {
 		body, err := provClient.GetAuditLog(ctx, tenantID)
 		if err != nil {
 			return fmt.Errorf("get audit log: %w", err)
@@ -208,16 +229,16 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 		return nil
 	}))
 
-	// 17. Suspend tenant
-	checks = append(checks, provCheck("suspend tenant", func() error {
+	// 17. Suspend tenant (Pro-gated → gate-tolerant)
+	checks = append(checks, provRoutingCheck("suspend tenant", func() error {
 		if err := provClient.SuspendTenant(ctx, tenantID); err != nil {
 			return fmt.Errorf("suspend tenant: %w", err)
 		}
 		return nil
 	}))
 
-	// 18. Reactivate tenant
-	checks = append(checks, provCheck("reactivate tenant", func() error {
+	// 18. Reactivate tenant (Pro-gated → gate-tolerant)
+	checks = append(checks, provRoutingCheck("reactivate tenant", func() error {
 		if err := provClient.ReactivateTenant(ctx, tenantID); err != nil {
 			return fmt.Errorf("reactivate tenant: %w", err)
 		}

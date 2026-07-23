@@ -289,6 +289,63 @@ func TestProvisioningClient_DeleteRoutingRules_NotFound(t *testing.T) {
 	}
 }
 
+func TestProvisioningClient_DeleteRoutingRulesRaw(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		respStatus int
+		respBody   string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name:       "200 → status 200, no error (idempotent delete)",
+			respStatus: http.StatusOK,
+			wantStatus: http.StatusOK,
+			wantErr:    false,
+		},
+		{
+			name:       "403 INSUFFICIENT_ROLE → status surfaced with error",
+			respStatus: http.StatusForbidden,
+			respBody:   `{"code":"INSUFFICIENT_ROLE","message":"Required role: admin or system"}`,
+			wantStatus: http.StatusForbidden,
+			wantErr:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodDelete {
+					t.Errorf("method = %q, want DELETE", r.Method)
+				}
+				if r.URL.Path != "/api/v1/tenants/test-t1/routing-rules" {
+					t.Errorf("path = %q, want /api/v1/tenants/test-t1/routing-rules", r.URL.Path)
+				}
+				w.WriteHeader(tc.respStatus)
+				if tc.respBody != "" {
+					_, _ = w.Write([]byte(tc.respBody))
+				}
+			}))
+			t.Cleanup(srv.Close)
+
+			client := testProvClient(t, srv.URL)
+			status, err := client.DeleteRoutingRulesRaw(context.Background(), "test-t1")
+			if status != tc.wantStatus {
+				t.Errorf("status = %d, want %d", status, tc.wantStatus)
+			}
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestProvisioningClient_CreateWebhook(t *testing.T) {
 	t.Parallel()
 
@@ -388,5 +445,100 @@ func TestProvisioningClient_CreateWebhook_ErrorResponse(t *testing.T) {
 		"not-a-url", "orders.*", "secret", 0)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+// TestProvisioningClient_TokenVariants asserts the token-parameterized raw methods send the
+// caller-supplied bearer token (NOT the admin provider) and surface (status, err) — the header
+// injection is a security-relevant behavior distinct from the admin/setHeaders path.
+func TestProvisioningClient_TokenVariants(t *testing.T) {
+	t.Parallel()
+
+	const token = "user-role-token-xyz"
+	const wantAuth = "Bearer " + token
+
+	tests := []struct {
+		name       string
+		wantMethod string
+		call       func(c *ProvisioningClient, ctx context.Context) (int, error)
+	}{
+		{
+			name:       "GetRoutingRulesWithToken → GET",
+			wantMethod: http.MethodGet,
+			call: func(c *ProvisioningClient, ctx context.Context) (int, error) {
+				return c.GetRoutingRulesWithToken(ctx, "test-t1", token)
+			},
+		},
+		{
+			name:       "SetRoutingRulesRawWithToken → PUT",
+			wantMethod: http.MethodPut,
+			call: func(c *ProvisioningClient, ctx context.Context) (int, error) {
+				return c.SetRoutingRulesRawWithToken(ctx, "test-t1", token, []map[string]any{{"pattern": "**", "topics": []string{"default"}, "priority": 100}})
+			},
+		},
+		{
+			name:       "AddRoutingRuleRawWithToken → POST",
+			wantMethod: http.MethodPost,
+			call: func(c *ProvisioningClient, ctx context.Context) (int, error) {
+				return c.AddRoutingRuleRawWithToken(ctx, "test-t1", token, map[string]any{"pattern": "a.**", "topics": []string{"default"}, "priority": 10})
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != tc.wantMethod {
+					t.Errorf("method = %q, want %q", r.Method, tc.wantMethod)
+				}
+				if got := r.Header.Get("Authorization"); got != wantAuth {
+					t.Errorf("Authorization = %q, want %q (must send caller token, not admin)", got, wantAuth)
+				}
+				if r.URL.Path != "/api/v1/tenants/test-t1/routing-rules" {
+					t.Errorf("path = %q, want /api/v1/tenants/test-t1/routing-rules", r.URL.Path)
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(srv.Close)
+
+			client := testProvClient(t, srv.URL)
+			status, err := tc.call(client, context.Background())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if status != http.StatusOK {
+				t.Errorf("status = %d, want 200", status)
+			}
+		})
+	}
+}
+
+// TestProvisioningClient_GetRoutingRulesPage asserts the admin paged GET sends ?limit=N and
+// returns the raw body.
+func TestProvisioningClient_GetRoutingRulesPage(t *testing.T) {
+	t.Parallel()
+
+	const wantBody = `{"items":[],"total":0,"limit":200,"offset":0}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want GET", r.Method)
+		}
+		if got := r.URL.Query().Get("limit"); got != "200" {
+			t.Errorf("limit query = %q, want 200", got)
+		}
+		requireAdminJWT(t, r)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(wantBody))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	body, err := client.GetRoutingRulesPage(context.Background(), "test-t1", 200)
+	if err != nil {
+		t.Fatalf("GetRoutingRulesPage: %v", err)
+	}
+	if string(body) != wantBody {
+		t.Errorf("body = %q, want %q", string(body), wantBody)
 	}
 }
