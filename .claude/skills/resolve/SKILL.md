@@ -1,3 +1,10 @@
+---
+name: resolve
+description: Resolve issues returned by /clarify or /analyze one at a time, elaborating each with full context before the user decides.
+model: opus
+user-invocable: true
+---
+
 # Resolve Issues
 
 Tackle issues returned by `/clarify` or `/analyze` one at a time. Each issue is elaborated with full context before the user decides.

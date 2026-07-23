@@ -1,5 +1,6 @@
 ---
 name: auto-code-review
+model: opus
 description: Runs a full parallel code review and automatically applies all recommended fixes without user approval. Iterates until no issues remain or the diff is clean.
 user-invocable: true
 ---

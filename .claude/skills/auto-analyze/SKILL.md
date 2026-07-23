@@ -1,5 +1,6 @@
 ---
 name: auto-analyze
+model: opus
 description: Runs full artifact analysis (spec, plan, tasks) and automatically applies all recommended fixes via /auto-resolve without user approval. Repeats until clean.
 user-invocable: true
 ---

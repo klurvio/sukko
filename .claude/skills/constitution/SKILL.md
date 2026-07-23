@@ -1,5 +1,6 @@
 ---
 name: constitution
+model: opus
 description: Create or update the project constitution — the governing principles that shape all code.
 user-invocable: true
 ---

@@ -1,5 +1,6 @@
 ---
 name: plan-feature
+model: fable
 description: Create a technical implementation plan from a feature spec. Generates research, data model, and project structure.
 user-invocable: true
 ---

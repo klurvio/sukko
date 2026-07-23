@@ -55,6 +55,16 @@ const (
 	errCodeRoutingRuleDuplicatePattern  = "ROUTING_RULE_DUPLICATE_PATTERN"  // POST dup pattern (409); PUT internal dup (400)
 	errCodeRoutingRuleDuplicatePriority = "ROUTING_RULE_DUPLICATE_PRIORITY" // POST dup priority (409)
 	errCodeRoutingRuleValidation        = "ROUTING_RULE_VALIDATION_ERROR"   // empty topics / too-many topics / bad pattern (400)
+
+	// Rename error codes asserted by the provisioning rename coverage suite
+	// (validate_provisioning_rename.go). Mirrored from the handler's service-private constants
+	// (internal/provisioning/api/handlers.go), matched exactly via extractErrorCode on the `code`
+	// field. errCodeInsufficientRole above is reused for the rename role gate (no duplicate).
+	errCodeInvalidRequest       = "INVALID_REQUEST"         // malformed JSON body (400)
+	errCodeSlugInvalid          = "SLUG_INVALID"            // slug fails ValidateSlug (400)
+	errCodeSlugReserved         = "SLUG_RESERVED"           // slug is in the reserved set (400)
+	errCodeSlugAlreadyTaken     = "SLUG_ALREADY_TAKEN"      // rename to an existing tenant's slug (409)
+	errCodeSlugRenameInProgress = "SLUG_RENAME_IN_PROGRESS" // rename within the topic hold period (409)
 )
 
 // ConnLimitRejectionCheckName is the check name emitted by the connection-boundary

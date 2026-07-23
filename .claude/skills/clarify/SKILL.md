@@ -1,5 +1,6 @@
 ---
 name: clarify
+model: opus
 description: Identify underspecified areas in the current feature spec by asking targeted clarification questions. Uses parallel specialized agents with confidence scoring, then resolves each issue via /resolve until the spec is clean.
 user-invocable: true
 ---

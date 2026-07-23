@@ -296,7 +296,7 @@ load/soak/stress are scale tests.
 | 7 | `ratelimit` | Community | no | Rate limit enforcement |
 | 8 | `sse` | Community | no | SSE transport validation |
 | 9 | `rest-publish` | Pro | no | REST publish delivery (`/api/v1/publish` is Pro-gated) |
-| 10 | `provisioning` | Community | **yes** | Provisioning API CRUD + e2e-unique routing-rules coverage (topic gate, role/tenant isolation, error-code mapping, pagination, normalization). Gated into `community-direct`/`pro-kafka`/`pro-direct` (§2.11) |
+| 10 | `provisioning` | Community | **yes** | Provisioning API CRUD + e2e-unique routing-rules coverage (topic gate, role/tenant isolation, error-code mapping, pagination, normalization) + rename & test-access coverage (all-editions). Gated into `community-direct`/`pro-kafka`/`pro-direct` (§2.11) |
 | 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation |
 | 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect |
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
@@ -494,6 +494,34 @@ which asserts the count boundary). `get audit log` is Enterprise-gated, so it sk
 `provisioning/main.go`, so `pro-direct` behaves identically to `pro-kafka`) and `ALLOWED_SKIPS`
 `provisioning:get audit log`; `community-direct` `REQUIRE_PASS`es `routing cross-tenant mismatch` +
 `routing edition gate` and `ALLOWED_SKIPS` the ~18 gated checks.
+
+Beyond routing, the suite adds **rename + test-access coverage** for the two remaining untested
+provisioning endpoints — `POST …/rename` and `POST …/test-access` — behavior only a live stack
+exercises (middleware composition `RequireTenant` → `RequireRole`, HTTP error-code mapping, the
+identity mutation a rename performs against a real store, and patterns computed from live
+channel-rule state). Both endpoints are **all-editions** (not edition-gated), so the 10 checks run
+and `REQUIRE_PASS` in every provisioning cell with **no** `ALLOWED_SKIPS`.
+
+The 7 rename checks operate on a **throwaway tenant B** (never the suite's primary tenant A), in
+service step order — `rename bad json` (400 `INVALID_REQUEST`), `rename invalid slug` (`1abc` → 400
+`SLUG_INVALID`), `rename reserved slug` (`admin` → 400 `SLUG_RESERVED`), `rename slug taken` (→ tenant
+A's slug → 409 `SLUG_ALREADY_TAKEN`), `rename role gate` (an A-scoped `user` token targeting A's own
+slug → 403 `INSUFFICIENT_ROLE`, rejected before the handler so A is never mutated), `rename happy path`
+(admin → a fresh valid slug → 200, with an admin-signed read-back confirming the new slug), and
+`rename hold period` (a second rename → 409 `SLUG_RENAME_IN_PROGRESS`). Tenant B is eagerly cleaned up
+under its **new** slug after a successful rename (the setup cleanup captures the stale old slug). Each
+negative asserts an exact status **and** `code`, paired with a verified 2xx case.
+
+The 3 test-access checks run against tenant A with a **tenant token** and self-establish their rule
+state (`testChannelRules`), restoring it so later checks pass — `test-access computed patterns`
+(groups `["vip"]` → `allowed_patterns` contains `room.vip`; groups `["nobody"]` → excludes it),
+`test-access no rules` (rules deleted → 200 + empty `allowed_patterns`, then restored), and
+`test-access bad json` (400 `INVALID_REQUEST`, paired with a well-formed 200).
+
+**Grid placement (rename + test-access)**: all 10 checks are `REQUIRE_PASS` in `community-direct`,
+`pro-kafka`, and `pro-direct` with zero `ALLOWED_SKIPS` (all-editions). A drift guard
+(`TestRenameTestAccessCheckNamesInE2E`) asserts each emitted Go check name appears as
+`provisioning:<name>` in all three cells' `REQUIRE_PASS`, so a typo cannot silently vacuous-pass.
 
 **Minimum edition**: Community  
 **Admin key**: required (`TESTER_ADMIN_KEY_FILE` + `TESTER_ADMIN_KEY_ID`)

@@ -1,5 +1,6 @@
 ---
 name: analyze
+model: opus
 description: Cross-artifact consistency and quality analysis across spec, plan, and tasks. Read-only — does not modify files.
 user-invocable: true
 ---

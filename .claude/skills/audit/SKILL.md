@@ -1,5 +1,6 @@
 ---
 name: audit
+model: opus
 description: Audit code changes or specific files/directories against the project constitution. Read-only — reports violations without modifying code.
 user-invocable: true
 ---

@@ -1,5 +1,6 @@
 ---
 name: checklist
+model: opus
 description: Generate a custom requirements quality checklist for Go/infrastructure changes. Validates that requirements are complete and clear.
 user-invocable: true
 ---

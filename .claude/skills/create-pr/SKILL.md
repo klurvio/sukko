@@ -1,5 +1,6 @@
 ---
 name: create-pr
+model: opus
 description: Create a pull request to main branch with auto-generated description from GitHub issue
 user-invocable: true
 ---

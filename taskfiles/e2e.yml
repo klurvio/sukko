@@ -395,7 +395,7 @@ tasks:
           # tenant-isolation is fail-closed (errors, never skips); force both isolation checks present-and-pass.
           # provisioning: routing cross-tenant mismatch (TENANT_MISMATCH fires pre-edition-gate → runs all
           # editions) and routing edition gate (the Community-only feature-gate assertion) must be present-and-pass.
-          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate"
+          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json"
 
   cell:pro-kafka:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."
@@ -410,7 +410,8 @@ tasks:
           ALLOWED_SKIPS: "provisioning:get audit log"
           # Force rest-publish + tenant-isolation delivery checks AND every Pro-reachable provisioning routing
           # check present-and-pass (the base verdict catches only skip/fail/error, not a silently-absent check).
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization"
+          # rename + test-access are all-editions (not gated) → required present-and-pass here too, no ALLOWED_SKIPS.
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json"
 
   cell:enterprise-kafka:
     desc: "Grid cell — Enterprise/kafka (full green set under an Enterprise license)."
@@ -438,7 +439,8 @@ tasks:
           ALLOWED_SKIPS: "edition-limits:connection limit rejection;provisioning:get audit log"
           # Force rest-publish + tenant-isolation delivery checks AND every Pro-reachable provisioning routing
           # check present-and-pass. Routing gates identically off-Kafka (noop topic registry, main.go:216).
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization"
+          # rename + test-access are all-editions (not gated) → required present-and-pass here too, no ALLOWED_SKIPS.
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json"
 
   cell:enterprise-direct:
     desc: "Grid cell — Enterprise/direct (full green set + edition-limits; unlimited path, no skips)."

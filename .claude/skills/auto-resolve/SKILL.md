@@ -1,5 +1,6 @@
 ---
 name: auto-resolve
+model: opus
 description: Automatically resolves issues from /clarify or /analyze by applying the recommended option for each issue without waiting for user approval. Repeats until all issues are resolved.
 user-invocable: true
 ---

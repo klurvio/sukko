@@ -1,5 +1,6 @@
 ---
 name: implement
+model: opus
 description: Execute the implementation plan by processing all tasks, phase by phase.
 user-invocable: true
 ---

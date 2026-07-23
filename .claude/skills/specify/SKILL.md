@@ -1,5 +1,6 @@
 ---
 name: specify
+model: fable
 description: Create a feature specification from a natural language description. Defines WHAT to build (not HOW).
 user-invocable: true
 ---

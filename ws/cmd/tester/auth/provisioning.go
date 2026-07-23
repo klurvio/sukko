@@ -397,6 +397,98 @@ func (c *ProvisioningClient) GetRoutingRulesPage(ctx context.Context, tenantID s
 	return c.doGet(ctx, path, "get routing rules")
 }
 
+// --- Rename + test-access methods for the rename/test-access coverage suite (FR-008) ---
+//
+// Mirror the routing-rules raw method shapes: (status int, err error) for rename (admin +
+// token variants), and (status int, body []byte, err error) for test-access so the success
+// body's allowed_patterns is surfaced (the body-discarding doRawWithToken cannot). On a >=400
+// response the error embeds the body via readError so callers derive `code` with extractErrorCode.
+
+// renamePath is the rename subpath for a tenant.
+func (c *ProvisioningClient) renamePath(tenantID string) string {
+	return c.baseURL + "/api/v1/tenants/" + tenantID + "/rename"
+}
+
+// RenameTenantRaw renames a tenant's slug as admin (POST /tenants/{slug}/rename, body
+// {"slug":newSlug}) and returns the HTTP status. Used by the rename coverage suite's admin cases.
+func (c *ProvisioningClient) RenameTenantRaw(ctx context.Context, slug, newSlug string) (int, error) {
+	body, err := json.Marshal(map[string]string{"slug": newSlug})
+	if err != nil {
+		return 0, fmt.Errorf("rename tenant: marshal: %w", err)
+	}
+	return c.doRawAdmin(ctx, http.MethodPost, c.renamePath(slug), "rename tenant", body)
+}
+
+// RenameTenantRawWithToken renames a tenant's slug using an explicit bearer token (not the admin
+// Provider). Used by the rename role-gate negative — a user-role token must be rejected 403
+// INSUFFICIENT_ROLE, so the caller token (not the admin key) MUST be the one sent.
+func (c *ProvisioningClient) RenameTenantRawWithToken(ctx context.Context, slug, token, newSlug string) (int, error) {
+	body, err := json.Marshal(map[string]string{"slug": newSlug})
+	if err != nil {
+		return 0, fmt.Errorf("rename tenant: marshal: %w", err)
+	}
+	return c.doRawWithToken(ctx, http.MethodPost, c.renamePath(slug), token, "rename tenant", body)
+}
+
+// TestAccessRaw POSTs a groups list to /tenants/{slug}/test-access using an explicit bearer
+// token (tenant-accessible, not admin-gated) and returns the HTTP status plus the raw success
+// body — the caller parses allowed_patterns from it. A >=400 response yields (status, nil, err)
+// with the body embedded for extractErrorCode.
+func (c *ProvisioningClient) TestAccessRaw(ctx context.Context, slug, token string, groups []string) (status int, body []byte, err error) {
+	payload, err := json.Marshal(map[string]any{"groups": groups})
+	if err != nil {
+		return 0, nil, fmt.Errorf("test access: marshal: %w", err)
+	}
+	url := c.baseURL + "/api/v1/tenants/" + slug + "/test-access"
+	return c.doRawWithTokenBody(ctx, http.MethodPost, url, token, "test access", payload)
+}
+
+// PostRawAdmin POSTs a caller-supplied raw body (may be malformed JSON) to path as admin and
+// returns the status. Used by the rename coverage suite's bad-JSON negative — the typed rename
+// methods marshal valid JSON, so this exercises the handler's INVALID_REQUEST branch directly.
+// path is a fixed subpath ("/api/v1/tenants/{slug}/rename") — never attacker-controlled.
+func (c *ProvisioningClient) PostRawAdmin(ctx context.Context, path, operation string, body []byte) (int, error) {
+	return c.doRawAdmin(ctx, http.MethodPost, c.baseURL+path, operation, body)
+}
+
+// PostRawWithTokenBody POSTs a caller-supplied raw body (may be malformed JSON) to path with an
+// explicit bearer token and returns the status + success body. Used by the test-access coverage
+// suite's bad-JSON negative.
+func (c *ProvisioningClient) PostRawWithTokenBody(ctx context.Context, path, token, operation string, body []byte) (status int, respBody []byte, err error) {
+	return c.doRawWithTokenBody(ctx, http.MethodPost, c.baseURL+path, token, operation, body)
+}
+
+// doRawWithTokenBody issues a request authenticated with an explicit bearer token, returning the
+// status AND the success body (unlike doRawWithToken, which discards it). On a >=400 response it
+// returns (status, nil, err) with the body embedded via readError for extractErrorCode.
+func (c *ProvisioningClient) doRawWithTokenBody(ctx context.Context, method, url, token, operation string, payload []byte) (status int, body []byte, err error) {
+	var bodyReader io.Reader = http.NoBody
+	if payload != nil {
+		bodyReader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err != nil {
+		return 0, nil, fmt.Errorf("%s: build request: %w", operation, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if resp.StatusCode >= 400 {
+		return resp.StatusCode, nil, formatHTTPError(operation, resp.StatusCode, body)
+	}
+	if readErr != nil {
+		return resp.StatusCode, nil, fmt.Errorf("%s: read response body: %w", operation, readErr)
+	}
+	return resp.StatusCode, body, nil
+}
+
 // ListTenants fetches the tenant list. Returns raw JSON response body.
 func (c *ProvisioningClient) ListTenants(ctx context.Context) ([]byte, error) {
 	return c.doGet(ctx, "/api/v1/tenants", "list tenants")
@@ -540,7 +632,7 @@ func (c *ProvisioningClient) doGet(ctx context.Context, path, operation string) 
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d: %s", operation, resp.StatusCode, string(body))
+		return nil, formatHTTPError(operation, resp.StatusCode, body)
 	}
 	if readErr != nil {
 		return nil, fmt.Errorf("%s: read response body: %w", operation, readErr)
@@ -586,7 +678,7 @@ func (c *ProvisioningClient) doPostForBody(ctx context.Context, path string, pay
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("%s: HTTP %d: %s", operation, resp.StatusCode, string(body))
+		return nil, formatHTTPError(operation, resp.StatusCode, body)
 	}
 	if readErr != nil {
 		return nil, fmt.Errorf("%s: read response body: %w", operation, readErr)
@@ -763,5 +855,13 @@ func (c *ProvisioningClient) setHeaders(req *http.Request) {
 
 func (c *ProvisioningClient) readError(operation string, resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody)) // best-effort: error body for diagnostics only
-	return fmt.Errorf("%s: HTTP %d: %s", operation, resp.StatusCode, string(body))
+	return formatHTTPError(operation, resp.StatusCode, body)
+}
+
+// formatHTTPError builds the standard "<operation>: HTTP <status>: <body>" error. The body is
+// embedded so extractErrorCode can recover the response's `code` field (it scans from the first
+// '{'). Single-sourced here so readError and the body-reading doRaw*/doGet/doPostForBody paths
+// share one format and cannot silently diverge (§X/§XVIII).
+func formatHTTPError(operation string, status int, body []byte) error {
+	return fmt.Errorf("%s: HTTP %d: %s", operation, status, string(body))
 }

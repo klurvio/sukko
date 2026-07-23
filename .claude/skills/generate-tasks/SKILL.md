@@ -1,5 +1,6 @@
 ---
 name: generate-tasks
+model: opus
 description: Generate an actionable, dependency-ordered task list from the implementation plan.
 user-invocable: true
 ---
