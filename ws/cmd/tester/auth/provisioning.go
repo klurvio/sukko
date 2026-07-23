@@ -332,10 +332,10 @@ func (c *ProvisioningClient) doRawWithToken(ctx context.Context, method, url, to
 // doRaw executes req and returns the HTTP status; a >=400 status yields a readError-wrapped
 // error whose text embeds the response body ("HTTP %d: %s") for extractErrorCode.
 func (c *ProvisioningClient) doRaw(req *http.Request, operation string) (int, error) {
-	// G704 false positive: the request URL is always c.baseURL (the operator-configured
-	// provisioning API) + a fixed path + a tenant slug; the Authorization bearer is a JWT the
-	// tester itself mints, never attacker-controlled input. No untrusted data reaches the URL.
-	resp, err := c.httpClient.Do(req) //nolint:gosec // G704: URL is the configured provisioning base + fixed path; token is a tester-minted JWT — not SSRF
+	// The request URL is always c.baseURL (the operator-configured provisioning API) + a fixed
+	// path + a tenant slug; the Authorization bearer is a JWT the tester itself mints, never
+	// attacker-controlled input. No untrusted data reaches the URL.
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", operation, err)
 	}

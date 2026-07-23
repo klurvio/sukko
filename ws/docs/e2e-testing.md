@@ -482,11 +482,11 @@ A-scoped `user`-role token against B → 403 `TENANT_MISMATCH`.
 **Edition reachability**: routing rules are Pro-gated (`ChannelTopicRouting`), so on **Community**
 the routing checks — plus the existing Pro/Enterprise-gated checks (`get/update quota`,
 `suspend/reactivate tenant`, `get audit log`) — emit an explicit **skip** (never a pass), enumerated
-in the cell's `ALLOWED_SKIPS`. Two routing checks run on **all** editions: `routing cross-tenant
-mismatch` (`TENANT_MISMATCH` fires before the edition gate) and `routing edition gate` (the
-Community-only feature-gate assertion — distinct from the `edition-limits` suite's `routing rules
-feature gate`, which asserts the count boundary). `get audit log` is Enterprise-gated, so it skips
-on Pro too. The per-tenant rule **count** limit (`TOO_MANY_ROUTING_RULES`) is owned by the
+in the cell's `ALLOWED_SKIPS`. One routing check runs on **all** editions: `routing cross-tenant
+mismatch` (`TENANT_MISMATCH` fires before the edition gate). A second, `routing edition gate`, runs
+on **Community only** — the feature-gate assertion, emitted solely inside the Community branch and
+absent on Pro/Enterprise (distinct from the `edition-limits` suite's `routing rules feature gate`,
+which asserts the count boundary). `get audit log` is Enterprise-gated, so it skips on Pro too. The per-tenant rule **count** limit (`TOO_MANY_ROUTING_RULES`) is owned by the
 `edition-limits` suite, not duplicated here.
 
 **Grid placement**: gated into `community-direct`, `pro-kafka`, `pro-direct`. The Pro cells
