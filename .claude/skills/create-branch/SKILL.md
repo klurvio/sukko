@@ -1,5 +1,6 @@
 ---
 name: create-branch
+model: opus
 description: Create well-structured, consistently-named git branches following team naming conventions
 user-invocable: true
 ---

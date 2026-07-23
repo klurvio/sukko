@@ -1,5 +1,6 @@
 ---
 name: scan-silent-errors
+model: opus
 description: Scan Go codebase for error paths that don't log or return the error — silent failures that make debugging impossible.
 user-invocable: true
 ---

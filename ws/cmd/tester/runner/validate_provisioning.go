@@ -173,6 +173,12 @@ func validateProvisioning(ctx context.Context, run *TestRun, logger zerolog.Logg
 	// routing-rules API is feature-gated; the block's checks skip explicitly (never fail).
 	checks = append(checks, validateProvisioningRouting(ctx, run, setup, edition, logger)...)
 
+	// --- E2E-unique rename + test-access coverage block (FR-001…FR-007). Placed after the routing
+	// block and BEFORE check 11 so its throwaway tenant B is provisioned and eagerly cleaned up
+	// non-overlapping with the routing block's cross-tenant B (peak = A+1, FR-005). The test-access
+	// sub-block self-establishes and restores testChannelRules so checks 11-12 still pass (FR-007/FR-011).
+	checks = append(checks, validateProvisioningRenameTestAccess(ctx, run, setup, edition, logger)...)
+
 	// 11. Set channel rules
 	checks = append(checks, provCheck("set channel rules", func() error {
 		if err := provClient.SetChannelRules(ctx, tenantID, testChannelRules); err != nil {

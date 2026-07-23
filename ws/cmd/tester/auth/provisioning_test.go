@@ -514,6 +514,152 @@ func TestProvisioningClient_TokenVariants(t *testing.T) {
 	}
 }
 
+// TestProvisioningClient_RenameTenantRaw asserts the admin rename POSTs to
+// /tenants/{slug}/rename with body {"slug":newSlug} and signs as admin (not a bearer token).
+func TestProvisioningClient_RenameTenantRaw(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/rename" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/rename", r.URL.Path)
+		}
+		requireAdminJWT(t, r)
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if body["slug"] != "renamed-t1" {
+			t.Errorf("body slug = %q, want renamed-t1", body["slug"])
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"slug":"renamed-t1"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	status, err := client.RenameTenantRaw(context.Background(), "test-t1", "renamed-t1")
+	if err != nil {
+		t.Fatalf("RenameTenantRaw: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("status = %d, want 200", status)
+	}
+}
+
+// TestProvisioningClient_RenameTenantRawWithToken asserts the token variant sends the CALLER's
+// bearer token (NOT the admin key) — the exact guard the role-gate negative depends on — and
+// surfaces (status, err) on a rejection.
+func TestProvisioningClient_RenameTenantRawWithToken(t *testing.T) {
+	t.Parallel()
+
+	const token = "user-role-token-xyz"
+	const wantAuth = "Bearer " + token
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/rename" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/rename", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != wantAuth {
+			t.Errorf("Authorization = %q, want %q (must send caller token, not admin)", got, wantAuth)
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":"INSUFFICIENT_ROLE","message":"Required role: admin or system"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	status, err := client.RenameTenantRawWithToken(context.Background(), "test-t1", token, "renamed-t1")
+	if status != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", status)
+	}
+	if err == nil {
+		t.Fatal("expected error for 403 response")
+	}
+	if !strings.Contains(err.Error(), "INSUFFICIENT_ROLE") {
+		t.Errorf("error = %q, want to contain INSUFFICIENT_ROLE", err.Error())
+	}
+}
+
+// TestProvisioningClient_TestAccessRaw asserts test-access POSTs to /tenants/{slug}/test-access
+// with the caller's bearer token and body {"groups":[...]}, and RETURNS the success body so the
+// caller can parse allowed_patterns.
+func TestProvisioningClient_TestAccessRaw(t *testing.T) {
+	t.Parallel()
+
+	const token = "tenant-token-abc"
+	const wantAuth = "Bearer " + token
+	const wantBody = `{"allowed_patterns":["room.vip","general.*"]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/tenants/test-t1/test-access" {
+			t.Errorf("path = %q, want /api/v1/tenants/test-t1/test-access", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != wantAuth {
+			t.Errorf("Authorization = %q, want %q (must send caller token, not admin)", got, wantAuth)
+		}
+		var body struct {
+			Groups []string `json:"groups"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if len(body.Groups) != 1 || body.Groups[0] != "vip" {
+			t.Errorf("groups = %v, want [vip]", body.Groups)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(wantBody))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	status, body, err := client.TestAccessRaw(context.Background(), "test-t1", token, []string{"vip"})
+	if err != nil {
+		t.Fatalf("TestAccessRaw: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("status = %d, want 200", status)
+	}
+	if string(body) != wantBody {
+		t.Errorf("body = %q, want %q", string(body), wantBody)
+	}
+}
+
+// TestProvisioningClient_TestAccessRaw_BadJSON asserts a 400 rejection surfaces the status and an
+// error embedding the body (for extractErrorCode) with a nil body.
+func TestProvisioningClient_TestAccessRaw_BadJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":"INVALID_REQUEST","message":"Invalid JSON body"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := testProvClient(t, srv.URL)
+	status, body, err := client.TestAccessRaw(context.Background(), "test-t1", "tok", []string{"vip"})
+	if status != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", status)
+	}
+	if body != nil {
+		t.Errorf("body = %q, want nil on error", string(body))
+	}
+	if err == nil {
+		t.Fatal("expected error for 400 response")
+	}
+	if !strings.Contains(err.Error(), "INVALID_REQUEST") {
+		t.Errorf("error = %q, want to contain INVALID_REQUEST", err.Error())
+	}
+}
+
 // TestProvisioningClient_GetRoutingRulesPage asserts the admin paged GET sends ?limit=N and
 // returns the raw body.
 func TestProvisioningClient_GetRoutingRulesPage(t *testing.T) {

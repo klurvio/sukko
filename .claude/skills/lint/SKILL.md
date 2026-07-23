@@ -1,5 +1,6 @@
 ---
 name: lint
+model: opus
 description: Auto-fix lint and formatting issues locally
 user-invocable: true
 ---

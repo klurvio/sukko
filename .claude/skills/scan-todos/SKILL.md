@@ -1,5 +1,6 @@
 ---
 name: scan-todos
+model: opus
 description: Scan the Go codebase for TODO and "for now" comments that indicate band-aid solutions. Spec out proper fixes.
 user-invocable: true
 ---

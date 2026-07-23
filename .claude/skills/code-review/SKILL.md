@@ -1,5 +1,6 @@
 ---
 name: code-review
+model: opus
 description: Review local code changes against the project constitution and Go best practices. Uses parallel specialized agents, adversarial scoring, and iterates until all issues are resolved or user opts to stop.
 user-invocable: true
 ---

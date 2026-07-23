@@ -1,5 +1,6 @@
 ---
 name: pr-review
+model: opus
 description: Review an existing pull request against the project constitution. Reports findings without modifying code.
 user-invocable: true
 ---

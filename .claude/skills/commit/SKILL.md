@@ -1,5 +1,6 @@
 ---
 name: commit
+model: opus
 description: Create a commit following Conventional Commits format
 user-invocable: true
 ---

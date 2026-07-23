@@ -1,5 +1,6 @@
 ---
 name: auto-clarify
+model: opus
 description: Runs full spec ambiguity analysis and automatically applies all recommended fixes via /auto-resolve without user approval. Repeats until the spec is clean.
 user-invocable: true
 ---
