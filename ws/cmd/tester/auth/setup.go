@@ -15,6 +15,13 @@ import (
 // orphaned keys auto-expire rather than persisting indefinitely.
 const defaultKeyExpiry = 24 * time.Hour
 
+// throwawayTenantPrefix is prepended to the run's TestID to form the ID of a
+// throwaway tenant auto-created when no TenantID is supplied (jwt and api-key modes).
+const throwawayTenantPrefix = "tester-"
+
+// throwawayTenantDescription is the description set on auto-created throwaway tenants.
+const throwawayTenantDescription = "Tester auto-created tenant"
+
 // SetupConfig configures the auth setup for a test run.
 type SetupConfig struct {
 	// TestID is the unique test run identifier (used for key ID and throwaway tenant ID).
@@ -103,8 +110,8 @@ func Setup(ctx context.Context, cfg SetupConfig) (*SetupResult, error) {
 	tenantID := cfg.TenantID
 	createdTenant := false
 	if tenantID == "" {
-		tenantID = "tester-" + cfg.TestID
-		if err := provClient.CreateTenant(ctx, tenantID, "Tester auto-created tenant"); err != nil {
+		tenantID = throwawayTenantPrefix + cfg.TestID
+		if err := provClient.CreateTenant(ctx, tenantID, throwawayTenantDescription); err != nil {
 			return nil, fmt.Errorf("auth setup: create tenant: %w", err)
 		}
 		createdTenant = true

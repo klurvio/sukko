@@ -15,6 +15,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// respTypeSubscribeError is the server→client frame type sent when a subscribe is rejected
+// (e.g. every requested channel was filtered out by the gateway as unauthorized). Defined
+// locally: the tester treats frame types as bare strings (ws/client.go) and imports no
+// internal/server code — a local const avoids tester→server coupling (§X/§XVIII).
+const respTypeSubscribeError = "subscribe_error"
+
 // validateAPIKey runs the api-key validation suite.
 // Validates that an API-key-only client can subscribe to public channels,
 // is denied private channels, and cannot REST-publish.
@@ -24,6 +30,28 @@ func validateAPIKey(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 
 	if run.apiKey == "" {
 		return nil, errors.New("validateAPIKey: no api key configured (set TESTER_API_KEY or pass api_key in request)")
+	}
+
+	// Seed precise channel rules for this run's tenant. An API-key-only client has nil JWT
+	// claims, so the gateway authorizes its subscribes against rules.Public *only*
+	// (permissions_tenant.go). With the default permissive public:["*"] the private channel
+	// would be allowed and check 3 ("private channel denied") could never be exercised — so
+	// narrow public to just the suite's public channel. Nil-guarded like
+	// seedDefaultChannelRules; a failure surfaces as a failing check, not a hard error
+	// (the tester's error contract — §XVIII with validate.go).
+	if run.authResult != nil && run.authResult.ProvClient != nil {
+		if err := run.authResult.ProvClient.SetChannelRules(ctx, run.Config.TenantID, map[string]any{
+			"public":         []string{validatePublicChannel},
+			"default":        []string{"*"},
+			"publish_public": []string{"*"},
+		}); err != nil {
+			checks = append(checks, metrics.CheckResult{
+				Name:   "seed channel rules",
+				Status: metrics.CheckStatusFail,
+				Error:  fmt.Sprintf("seed channel rules: %v", err),
+			})
+			return checks, nil
+		}
 	}
 
 	// errCh receives application-layer error frames (type=="error") from the gateway.
@@ -36,7 +64,10 @@ func validateAPIKey(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 		APIKey:     run.apiKey,
 		Logger:     logger.With().Str("suite", "api-key").Logger(),
 		OnMessage: func(msg testerws.Message) {
-			if msg.Type == "error" {
+			// A denied subscribe surfaces as a subscribe_error frame (the gateway filters the
+			// unauthorized channel, leaving an empty subscribe, and the server replies
+			// subscribe_error). Match both it and generic error frames (§XVII protocol match).
+			if msg.Type == "error" || msg.Type == respTypeSubscribeError {
 				select {
 				case errCh <- msg:
 				default:
@@ -87,9 +118,18 @@ func validateAPIKey(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 		Status: metrics.CheckStatusPass,
 	})
 
-	// Check 3: Subscribe to private channel — expect the gateway to deny with an error frame.
-	// A transport-level error means unexpected disconnect (fail immediately).
-	// Correct behavior: connection stays open, server sends type=="error".
+	// Check 3: Subscribe to private channel — expect the gateway to deny it. The gateway
+	// filters the unauthorized channel out, leaving an empty subscribe, and the server
+	// replies with a subscribe_error frame (captured on errCh). A transport-level error
+	// means unexpected disconnect (fail immediately).
+	// Drain any stale frames first so a leftover error/subscribe_error cannot false-pass.
+	for drained := false; !drained; {
+		select {
+		case <-errCh:
+		default:
+			drained = true
+		}
+	}
 	privateChannel := run.Config.TenantID + privateChannelSuffix
 	if subErr := client.Subscribe([]string{privateChannel}); subErr != nil {
 		checks = append(checks, metrics.CheckResult{

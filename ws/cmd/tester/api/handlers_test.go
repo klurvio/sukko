@@ -662,10 +662,11 @@ func TestStartTest_AuthModeValidation(t *testing.T) {
 			wantStatus: http.StatusCreated,
 		},
 		{
-			// api-key + validate requires non-empty tenant_id
-			name:       "auth_mode=api-key + type=validate + empty tenant_id → 400",
+			// api-key + validate + empty tenant_id is now accepted: the runner self-provisions a
+			// throwaway tenant (FR-009/FR-010). Guard removed in lockstep with the runner.
+			name:       "auth_mode=api-key + type=validate + suite=api-key + empty tenant_id → 201",
 			body:       `{"type":"validate","auth_mode":"api-key","suite":"api-key"}`,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusCreated,
 		},
 	}
 
@@ -723,4 +724,63 @@ func TestStartTest_MissingAuthMode_DefaultsToJWT(t *testing.T) {
 
 	_ = r.Stop(id)
 	r.Wait()
+}
+
+// TestStartTest_InferAuthModeFromSuite verifies the auth-mode inference: an absent auth_mode
+// resolves to api-key for a validate run of the api-key suite (completing the mandatory 1:1
+// mapping), and MUST NOT re-mode any other suite or non-validate type.
+func TestStartTest_InferAuthModeFromSuite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want runner.AuthMode
+	}{
+		{
+			name: "validate + suite=api-key → inferred api-key",
+			body: `{"type":"validate","suite":"api-key"}`,
+			want: runner.AuthModeAPIKey,
+		},
+		{
+			name: "validate + suite=rest-publish → jwt (not re-moded)",
+			body: `{"type":"validate","suite":"rest-publish"}`,
+			want: runner.AuthModeJWT,
+		},
+		{
+			name: "load + suite=api-key → jwt (inference is validate-only)",
+			body: `{"type":"load","suite":"api-key"}`,
+			want: runner.AuthModeJWT,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, r := newTestRouter()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(tt.body))
+			req.Header.Set("Authorization", "Bearer test-auth")
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusCreated, w.Body.String())
+			}
+			var resp map[string]any
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			id, _ := resp["id"].(string)
+
+			run, err := r.Get(id)
+			if err != nil {
+				t.Fatalf("Get(%q): %v", id, err)
+			}
+			if run.Config.AuthMode != tt.want {
+				t.Errorf("resolved AuthMode = %q, want %q", run.Config.AuthMode, tt.want)
+			}
+
+			_ = r.Stop(id)
+			r.Wait()
+		})
+	}
 }

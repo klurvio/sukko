@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/rs/zerolog"
 )
@@ -204,5 +206,124 @@ func TestValidateAPIKey_RESTPublishReturns200_IncreasesErrorCounter(t *testing.T
 	}
 	if !foundRESTCheck {
 		t.Fatal("check 'api key REST publish blocked' not found in results")
+	}
+}
+
+// TestValidateAPIKey_SubscribeErrorFrameDenies verifies Check 3 passes when the gateway
+// denies the private channel with a subscribe_error frame (the real server frame type) —
+// not a generic "error" frame. This exercises the widened errCh matcher (R-6).
+func TestValidateAPIKey_SubscribeErrorFrameDenies(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ws" {
+			conn, _, _, err := ws.HTTPUpgrader{}.Upgrade(r, w)
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			for {
+				msg, err := wsutil.ReadClientText(conn)
+				if err != nil {
+					return
+				}
+				var frame struct {
+					Type string `json:"type"`
+					Data struct {
+						Channels []string `json:"channels"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(msg, &frame) != nil || frame.Type != "subscribe" {
+					continue
+				}
+				for _, ch := range frame.Data.Channels {
+					if strings.Contains(ch, "private") {
+						errMsg, _ := json.Marshal(map[string]any{
+							"type":    "subscribe_error", // NOT "error" — the real denial frame type
+							"channel": ch,
+							"data":    map[string]any{"code": "invalid_request"},
+						})
+						_ = wsutil.WriteServerText(conn, errMsg)
+					}
+				}
+			}
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/publish" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	run := newValidateAPIKeyRun(wsURL, "pk_live_test123")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	checks, err := validateAPIKey(ctx, run, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("validateAPIKey: %v", err)
+	}
+
+	var found bool
+	for _, c := range checks {
+		if c.Name == "private channel denied" {
+			found = true
+			if c.Status != metrics.CheckStatusPass {
+				t.Errorf("check 'private channel denied': status = %q, want %q; error: %s", c.Status, metrics.CheckStatusPass, c.Error)
+			}
+		}
+	}
+	if !found {
+		t.Error("check 'private channel denied' not found — the subscribe_error frame was not captured")
+	}
+}
+
+// TestValidateAPIKey_SeedsNarrowPublicRule verifies the suite seeds channel rules that
+// narrow public to just the suite's public channel — so an API-key client (nil claims →
+// rules.Public only) is denied the private channel. The WS handshake fails against this
+// mock (no upgrade), but the seed runs first and its payload is recorded.
+func TestValidateAPIKey_SeedsNarrowPublicRule(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var gotRules map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/channel-rules") {
+			mu.Lock()
+			_ = json.NewDecoder(r.Body).Decode(&gotRules)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK) // WS GET gets 200 (not 101) → handshake fails, connect check fails
+	}))
+	t.Cleanup(srv.Close)
+
+	provider, _, err := auth.NewEphemeralAuthProvider()
+	if err != nil {
+		t.Fatalf("NewEphemeralAuthProvider: %v", err)
+	}
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	run := newValidateAPIKeyRun(wsURL, "pk_live_test123")
+	run.authResult = &auth.SetupResult{
+		TenantID:   "test-tenant",
+		ProvClient: auth.NewProvisioningClient(srv.URL, provider, zerolog.Nop()),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := validateAPIKey(ctx, run, zerolog.Nop()); err != nil {
+		t.Fatalf("validateAPIKey: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotRules == nil {
+		t.Fatal("SetChannelRules was never called — the suite must seed narrow rules")
+	}
+	pub, _ := gotRules["public"].([]any)
+	if len(pub) != 1 || pub[0] != validatePublicChannel {
+		t.Errorf("seeded public rule = %v, want [%q]", gotRules["public"], validatePublicChannel)
 	}
 }
