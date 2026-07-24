@@ -918,9 +918,12 @@ func TestReadLoop_CloseFrame_ExitsGracefully(t *testing.T) {
 
 func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 	t.Parallel()
-	// Create a connection that blocks on read
+	// Block the read until Close(), modeling the production shutdown ordering: the server cancels
+	// the context, the write loop closes the connection, and only THEN does the read unblock — so
+	// the disconnect is deterministically attributed to the server (not a racing client read error).
 	mockConn := newTestMockConn()
-	mockConn.setReadError(io.EOF) // Will return EOF when read buffer is empty
+	mockConn.setReadError(io.EOF)     // returned after the blocking read unblocks on Close()
+	mockConn.setBlockReadUntilClose() // Read blocks (no buffered data) until Close()
 
 	s := stats.NewStats()
 	pump := &Pump{
@@ -951,8 +954,13 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 		done <- true
 	}()
 
-	// Cancel context to simulate server shutdown
+	// Barrier: wait until the read loop is INSIDE the blocking read, then cancel (server shutdown),
+	// then close the conn (as the write loop would) to unblock it. This guarantees the read unblocks
+	// AFTER cancellation, so the read-error re-check attributes the disconnect to the server — the
+	// exact ordering the flaky version raced.
+	<-mockConn.readEnteredCh()
 	cancel()
+	_ = mockConn.Close()
 
 	select {
 	case <-done:
@@ -965,6 +973,61 @@ func TestReadLoop_ContextCancellation_ExitsWithServerShutdown(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Error("ReadLoop did not exit on context cancellation")
+	}
+}
+
+// TestReadLoop_PreCancelledContext_ExitsWithServerShutdown covers the loop-top ctx.Done() catch
+// (pump.go:177-183): a context already canceled before the loop starts exits server-attributed via
+// the loop-top select, before any read. Deterministic (no blocking mode) — preserves coverage of
+// that path, which the read-entry barrier in TestReadLoop_ContextCancellation_ExitsWithServerShutdown
+// deliberately routes around (that test now exercises the read-error re-check path).
+func TestReadLoop_PreCancelledContext_ExitsWithServerShutdown(t *testing.T) {
+	t.Parallel()
+	mockConn := newTestMockConn()
+	mockConn.setReadError(io.EOF)
+
+	s := stats.NewStats()
+	pump := &Pump{
+		Config: testPumpConfig(),
+		Stats:  s,
+	}
+
+	client := &Client{
+		id:            1,
+		transport:     NewWebSocketTransport(mockConn),
+		send:          make(chan OutgoingMsg, 10),
+		subscriptions: NewSubscriptionSet(),
+		seqGen:        messaging.NewSequenceGenerator(),
+	}
+
+	var disconnectReason string
+	var initiatedBy string
+	disconnectFn := func(_ *Client, reason, by string) {
+		disconnectReason = reason
+		initiatedBy = by
+	}
+
+	// Cancel BEFORE ReadLoop starts → the loop-top ctx.Done() catch fires deterministically,
+	// before any read is attempted.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan bool)
+	go func() {
+		pump.ReadLoop(ctx, client, disconnectFn, nil)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		if disconnectReason != "server_shutdown" {
+			t.Errorf("Expected server_shutdown reason, got %s", disconnectReason)
+		}
+		if initiatedBy != "server" {
+			t.Errorf("Expected server initiated, got %s", initiatedBy)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("ReadLoop did not exit on pre-canceled context")
 	}
 }
 

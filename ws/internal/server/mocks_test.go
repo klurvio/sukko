@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -431,6 +432,15 @@ type testMockConn struct {
 	deadlines      []time.Time
 	readDeadline   time.Time
 	writeDeadlines []time.Time
+
+	// Opt-in "block read until Close()" mode (default off — zero impact on all other callers).
+	// Models the production shutdown ordering (cancel → write loop → conn close → read unblocks)
+	// so ReadLoop shutdown-attribution tests are deterministic instead of racing an instant EOF.
+	blockRead       bool
+	readUnblock     chan struct{} // Close() closes this (once) to unblock a blocked Read
+	readEntered     chan struct{} // closed (once) when a blocked Read is entered — test barrier
+	readEnteredOnce sync.Once
+	closeOnce       sync.Once
 }
 
 func newTestMockConn() *testMockConn {
@@ -443,18 +453,37 @@ func newTestMockConn() *testMockConn {
 
 func (c *testMockConn) Read(b []byte) (n int, err error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+
+	// Opt-in blocking mode: with no buffered data, block until Close(). Checked BEFORE the
+	// readErr fast path so a conn configured with both blocking mode AND a read error blocks
+	// first, then returns the error on unblock. Snapshot state under the lock, release the lock
+	// BEFORE receiving on the unblock channel (never hold c.mu across the block — Close() needs
+	// it). Mirrors the mockBackend.Replay snapshot-then-block discipline.
+	if c.blockRead && c.readPos >= len(c.readBuf) {
+		unblock := c.readUnblock
+		rerr := c.readErr
+		c.readEnteredOnce.Do(func() { close(c.readEntered) })
+		c.mu.Unlock()
+		<-unblock
+		if rerr == nil {
+			rerr = io.EOF // guarantee a non-nil error so wsutil.Reader.NextFrame does not spin
+		}
+		return 0, rerr
+	}
 
 	if c.readErr != nil {
+		c.mu.Unlock()
 		return 0, c.readErr
 	}
 
 	if c.readPos >= len(c.readBuf) {
+		c.mu.Unlock()
 		return 0, c.readErr
 	}
 
 	n = copy(b, c.readBuf[c.readPos:])
 	c.readPos += n
+	c.mu.Unlock()
 	return n, nil
 }
 
@@ -474,6 +503,11 @@ func (c *testMockConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.closed = true
+	// Unblock any Read blocked in the opt-in blocking mode. Guarded so repeated Close() is a
+	// safe no-op (a second close of a closed channel would panic — §VII).
+	if c.readUnblock != nil {
+		c.closeOnce.Do(func() { close(c.readUnblock) })
+	}
 	return nil
 }
 
@@ -520,6 +554,26 @@ func (c *testMockConn) setReadError(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.readErr = err
+}
+
+// setBlockReadUntilClose enables the opt-in blocking mode: a Read with no buffered data blocks
+// until Close() is called, then returns the configured readErr (default io.EOF). Models the
+// production shutdown ordering (cancel → write loop → conn close → read unblocks) so the ReadLoop
+// shutdown-attribution test is deterministic instead of racing an instant EOF.
+func (c *testMockConn) setBlockReadUntilClose() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.blockRead = true
+	c.readUnblock = make(chan struct{})
+	c.readEntered = make(chan struct{})
+}
+
+// readEnteredCh returns a channel closed when a blocked Read has been entered — a deterministic
+// barrier so a test can guarantee the read loop is inside the blocking read before canceling.
+func (c *testMockConn) readEnteredCh() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.readEntered
 }
 
 func (c *testMockConn) getWrittenData() []byte {
