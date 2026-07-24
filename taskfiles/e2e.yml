@@ -379,13 +379,15 @@ tasks:
   # CI drives these by name (smoke-on-push / full-grid-on-schedule); later specs add rows.
   # ---------------------------------------------------------------------------
   cell:community-direct:
-    desc: "Grid cell — Community/direct (green set minus Pro-gated sse, + edition-limits)."
+    desc: "Grid cell — Community/direct (green set minus Pro-gated sse, + edition-limits, + api-key)."
     cmds:
       - task: cell
         vars:
           EDITION: community
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning"
+          # api-key: edition-independent, backend-agnostic (nil-claims API-key auth) — cheapest cell.
+          # The suite self-provisions its throwaway tenant + run-scoped key (no TESTER_API_KEY needed).
+          SUITES: "channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning api-key"
           # edition-limits: the connection-boundary sub-check honestly skips (Community's 500-conn limit
           # exceeds the 100-conn test cap). provisioning: on Community the routing-rules API is feature-gated
           # (Pro) and quota/lifecycle/audit are Pro/Enterprise-gated, so those checks emit explicit skips —
@@ -395,7 +397,8 @@ tasks:
           # tenant-isolation is fail-closed (errors, never skips); force both isolation checks present-and-pass.
           # provisioning: routing cross-tenant mismatch (TENANT_MISMATCH fires pre-edition-gate → runs all
           # editions) and routing edition gate (the Community-only feature-gate assertion) must be present-and-pass.
-          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json"
+          # api-key: all four checks fail-closed (no legitimate skip — FR-006), so require each present-and-pass.
+          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json;api-key:api key accepted;api-key:public channel subscribe;api-key:private channel denied;api-key:api key REST publish blocked"
 
   cell:pro-kafka:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."

@@ -243,6 +243,13 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 
 	// §II defense-in-depth: validate auth mode and mode/type combinations.
 	// The handler also validates, but the runner validates again for programmatic callers.
+	// Auth-mode inference (§XV): suite=api-key has exactly one legal mode (api-key), so an
+	// absent auth_mode for a validate run of that suite resolves to api-key — this completes
+	// a mandatory 1:1 mapping, it is not multi-meaning mode detection. Kept in lockstep with
+	// the handler boundary (§II). Every other absent-mode request still defaults to jwt.
+	if cfg.AuthMode == "" && cfg.Type == TestValidate && cfg.Suite == SuiteAPIKey {
+		cfg.AuthMode = AuthModeAPIKey
+	}
 	if cfg.AuthMode == "" {
 		cfg.AuthMode = AuthModeJWT // backward compat: missing auth_mode defaults to jwt
 	}
@@ -272,9 +279,9 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 		if cfg.Suite != "" && cfg.Suite != SuiteAPIKey && cfg.Suite != SuiteRestPublish {
 			return nil, fmt.Errorf("auth_mode=api-key only supports suite=%s or suite=%s, got suite=%s: %w", SuiteAPIKey, SuiteRestPublish, cfg.Suite, ErrInvalidConfig)
 		}
-		if cfg.TenantID == "" {
-			return nil, fmt.Errorf("auth_mode=api-key requires tenant_id: %w", ErrInvalidConfig)
-		}
+		// tenant_id is optional in api-key mode (FR-009/FR-010): empty/absent/null → the runner
+		// self-provisions a throwaway tenant; a supplied tenant_id is used as-is. Guard removed
+		// in lockstep with the handler boundary (§II).
 	case AuthModeUpgrade:
 		if cfg.Type != TestValidate {
 			return nil, fmt.Errorf("auth_mode=upgrade is only valid for type=validate, got type=%s: %w", cfg.Type, ErrInvalidConfig)
@@ -377,6 +384,41 @@ func resolveAdminProvider(cfg Config, testCfg TestConfig) (auth.Provider, error)
 	return nil, nil // nil → auth.Setup generates ephemeral (local dev mode)
 }
 
+// selfProvisionAPIKey creates a run-scoped API key for the run's tenant and returns its
+// ID plus a best-effort revoke closure (fresh context + editionHTTPTimeout, per §III/§IV).
+// Shared by mixed and api-key modes when no static key is supplied (§X/§XVIII dedup).
+//
+// Return contract:
+//   - CreateAPIKey fails            → ("", nil, err): nothing was created; nothing to revoke.
+//   - key created but key_id unparseable → ("", nil, err): logs a prominent "manual cleanup
+//     required" warning (the key exists but its ID is unknown, so it cannot be revoked); the
+//     caller MUST fail the run.
+//   - success                       → (keyID, revoke, nil): the caller registers `defer revoke()`
+//     (revoke is safe to call once, takes no arguments).
+func selfProvisionAPIKey(ctx context.Context, authResult *auth.SetupResult, keyName string, logger zerolog.Logger) (keyID string, revoke func(), err error) {
+	keyBody, err := authResult.ProvClient.CreateAPIKey(ctx, authResult.TenantID, keyName)
+	if err != nil {
+		return "", nil, fmt.Errorf("create api key: %w", err)
+	}
+	var keyResp struct {
+		KeyID string `json:"key_id"`
+	}
+	if uerr := json.Unmarshal(keyBody, &keyResp); uerr != nil || keyResp.KeyID == "" {
+		logger.Error().Err(uerr).Str(logging.LogKeyTenantSlug, authResult.TenantID).
+			Msg("provision: api key created but key_id could not be parsed — cannot revoke; manual cleanup required")
+		return "", nil, errors.New("parse key_id from create api key response")
+	}
+	keyID = keyResp.KeyID
+	revoke = func() { //nolint:contextcheck // teardown: test ctx is canceled at this point; fresh context required
+		revokeCtx, cancel := context.WithTimeout(context.Background(), editionHTTPTimeout)
+		defer cancel()
+		if rerr := authResult.ProvClient.RevokeAPIKey(revokeCtx, authResult.TenantID, keyID); rerr != nil {
+			logger.Error().Err(rerr).Str("key_id", keyID).Msg("teardown: failed to revoke run-scoped api key")
+		}
+	}
+	return keyID, revoke, nil
+}
+
 func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	logger := r.logger.With().Str("test_id", run.ID).Str("type", string(run.Config.Type)).Logger()
 
@@ -460,34 +502,32 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	// Mixed mode with no static API key: create one dynamically at test start.
 	// The key is revoked at teardown (best-effort) using a fresh context (§III, §IV).
 	if run.Config.AuthMode == AuthModeMixed && run.apiKey == "" {
-		keyBody, keyErr := authResult.ProvClient.CreateAPIKey(ctx, authResult.TenantID, "tester-mixed-"+run.ID)
+		keyID, revoke, keyErr := selfProvisionAPIKey(ctx, authResult, mixedKeyNamePrefix+run.ID, logger)
+		if revoke != nil {
+			defer revoke()
+		}
 		if keyErr != nil {
 			r.failRun(run, fmt.Sprintf("create mixed-mode api key: %v", keyErr))
 			logger.Error().Err(keyErr).Msg("failed to create mixed-mode api key")
 			return
 		}
-		// Register revoke defer immediately after CreateAPIKey succeeds — before any parse
-		// check — so teardown always runs. Guard on run.apiKey: if parse fails the key_id is
-		// unknown and revoke is impossible; log a prominent warning for manual cleanup.
-		defer func() { //nolint:contextcheck // teardown: test ctx is canceled at this point; fresh context required
-			if run.apiKey == "" {
-				logger.Error().Msg("teardown: mixed-mode api key created but key_id unknown — cannot revoke; manual cleanup required")
-				return
-			}
-			revokeCtx, revokeCancel := context.WithTimeout(context.Background(), editionHTTPTimeout)
-			defer revokeCancel()
-			if err := authResult.ProvClient.RevokeAPIKey(revokeCtx, authResult.TenantID, run.apiKey); err != nil {
-				logger.Error().Err(err).Str("key_id", run.apiKey).Msg("teardown: failed to revoke mixed-mode api key")
-			}
-		}()
-		var keyResp struct {
-			KeyID string `json:"key_id"`
+		run.apiKey = keyID
+	}
+
+	// API-key mode with no supplied key: self-provision a run-scoped key for the run's
+	// tenant (mirrors mixed mode above). authResult.Cleanup (deferred earlier) deletes the
+	// throwaway tenant LAST; the revoke defer registered here runs FIRST (LIFO — FR-011b).
+	if run.Config.AuthMode == AuthModeAPIKey && run.apiKey == "" {
+		keyID, revoke, keyErr := selfProvisionAPIKey(ctx, authResult, apiKeyRunKeyNamePrefix+run.ID, logger)
+		if revoke != nil {
+			defer revoke()
 		}
-		if err := json.Unmarshal(keyBody, &keyResp); err != nil || keyResp.KeyID == "" {
-			r.failRun(run, "create mixed-mode api key: failed to parse key_id from response")
+		if keyErr != nil {
+			r.failRun(run, fmt.Sprintf("create api-key-mode api key: %v", keyErr))
+			logger.Error().Err(keyErr).Msg("failed to create api-key-mode api key")
 			return
 		}
-		run.apiKey = keyResp.KeyID
+		run.apiKey = keyID
 	}
 
 	var report *metrics.Report

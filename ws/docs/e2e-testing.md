@@ -142,7 +142,7 @@ It runs as the `e2e-push-validate` job of the `CI` workflow (`workflow_dispatch`
 | `TESTER_PORT` | `8090` | no | Tester HTTP server port |
 | `PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME` | `1h` | no | Max TTL for revoked token entries (provisioning service) |
 | `TESTER_AUTH_MODE` | `jwt` | no | Credential mode for connections: `jwt`, `api-key`, `upgrade`, or `mixed` |
-| `TESTER_API_KEY` | — | api-key / upgrade modes | Static pre-provisioned API key. Required when `TESTER_AUTH_MODE` is `api-key` or `upgrade`; optional for `mixed`. **Never echoed by the `/config` endpoint** (`redact:"true"`). |
+| `TESTER_API_KEY` | — | api-key / upgrade modes | Static pre-provisioned API key. Required when the **service-level** `TESTER_AUTH_MODE` is `api-key` or `upgrade`; optional for `mixed`. Not required for a **per-request** `--suite api-key` validate run, which auto-provisions a key when absent (§2.17). **Never echoed by the `/config` endpoint** (`redact:"true"`). |
 | `TESTER_AUTH_MIX_RATIO` | `0.5` | no | Fraction of connections using API key in `mixed` mode (range 0.0–1.0). Applies to load/soak only. |
 | `TESTER_AUTH_UPGRADE_TIMEOUT` | `10s` | no | Timeout waiting for `auth_ack` during upgrade flow. Max 60s. |
 | `TESTER_GATEWAY_METRICS_URL` | — | stress:revocation / soak:revocation | Prometheus `/metrics` endpoint of the gateway pod (e.g. `http://gateway-pod:9090`). Leave empty to skip gateway-side metric checks. Must use `http://` or `https://` scheme. Single-replica gateway required. |
@@ -191,7 +191,7 @@ Named anchor cells wrap the runner with their suite sets:
 
 | Cell (`task e2e:cell:<name>`) | Edition | Backend | Type | Suites / assertion |
 |---|---|---|---|---|
-| `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits tenant-isolation` |
+| `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning api-key` |
 | `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation` |
 | `enterprise-direct` | Enterprise | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish` |
 | `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish tenant-isolation` |
@@ -302,7 +302,7 @@ load/soak/stress are scale tests.
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
 | 14 | `push` | Enterprise | no | Push notification pipeline, including **actual Web Push delivery**: registers a device against the tester's mock receiver (`TESTER_PUSH_RECEIVER_HOST`) with real P-256 client keys and asserts the encrypted notification arrives (RFC 8030). Delivery check skips when the receiver host is unset (managed deployments). **Real delivery is Web Push (VAPID) only** — the FCM (Android) / APNs (iOS) legs register with fake provider tokens and assert subscription acceptance, not delivery (real mobile delivery tracked as #175). |
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
-| 16 | `api-key` | Community | no | API key auth in isolation (no JWT provisioning) |
+| 16 | `api-key` | Community | **yes** | API key auth in isolation (no JWT provisioning); self-provisions tenant + key. Gated into `community-direct` (§2.17) |
 | 17 | `upgrade` | Community | no | Auth upgrade flow: connect with API key, upgrade to JWT |
 | 18 | `webhooks` | Pro | no | Webhook delivery: happy-path, retry-success, degraded transition |
 | 19 | `kafka-ingest` | Community | no | Direct-to-Kafka ingestion: publishes straight to the broker (SASL/TLS) and verifies a gateway-subscribed client receives it. Skips when `KAFKA_BROKERS` unset; delivery requires the server under test to run `MESSAGE_BACKEND=kafka` (Pro-gated). Run continuously by `task e2e:kafka-ingest` / the CI workflow's `e2e-kafka-ingest` job (see §1.3). |
@@ -684,12 +684,27 @@ sukko test validate --suite api-key
 ```
 
 Validates static API key auth in isolation — no JWT provisioning; distinct from the
-`auth` suite which validates both auth methods within a single run. Requires
-`TESTER_AUTH_MODE=api-key`, a pre-provisioned `TESTER_API_KEY`, and `tenant_id` in
-the request body.
+`auth` suite which validates both auth methods within a single run. Four checks: API key
+accepted, public channel subscribe allowed, private channel subscribe **denied**, and REST
+publish **blocked** (403).
+
+**Self-provisioning (no manual setup).** `--suite api-key` alone is sufficient: the tester
+infers `auth_mode=api-key` from the suite, and when no key/tenant is supplied it
+self-provisions a throwaway tenant and a run-scoped API key (via the admin provisioning
+client), then revokes/deletes both at teardown (best-effort). Explicitly supplied values take
+precedence and are never cleaned up: a per-request `api_key` overrides `TESTER_API_KEY`, and a
+supplied `tenant_id` is used as-is. `TESTER_API_KEY` is therefore **not required** for an
+api-key validate run (its service-level startup requirement is unchanged — see §1.4). The suite
+also seeds narrow channel rules for its tenant so that, as a nil-claims API-key client, the
+private channel is genuinely unauthorized.
+
+**CI placement**: gated into the `community-direct` cell (API-key auth is edition-independent
+and backend-agnostic — the cheapest cell). All four checks are `REQUIRE_PASS`; there are no
+allowed skips.
 
 **Minimum edition**: Community  
-**Admin key**: not required
+**Admin key**: required only when self-provisioning against a remote stack (to create the
+throwaway tenant + key); the local compose stack provides it automatically.
 
 ### 2.18 upgrade
 
@@ -759,7 +774,7 @@ The tester supports four credential modes configured via `TESTER_AUTH_MODE` (or 
 | Mode | Valid for | Description |
 |---|---|---|
 | `jwt` | all types | JWT only — default. Issues JWTs per connection. |
-| `api-key` | `validate` only | Static API key only. No JWT provisioning. |
+| `api-key` | `validate` only | Static API key only. No JWT provisioning. Self-provisions a throwaway tenant + run-scoped key when none is supplied (§2.17). |
 | `upgrade` | `validate` only | Connect with API key, upgrade to JWT via `auth` message. |
 | `mixed` | `load`, `soak` | Split connections between API key and JWT per `auth_mix_ratio`. |
 

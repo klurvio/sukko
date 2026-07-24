@@ -34,3 +34,10 @@ const (
 // privateChannelSuffix is the channel name suffix used in the api-key validation
 // suite to test that API keys are denied access to private channels.
 const privateChannelSuffix = ".private"
+
+// Run-scoped API key name prefixes — used when the runner self-provisions a key at
+// test start (named constants per §I; the run ID is appended for a per-run name).
+const (
+	mixedKeyNamePrefix     = "tester-mixed-"  // mixed-mode self-provisioned API key name prefix
+	apiKeyRunKeyNamePrefix = "tester-apikey-" // api-key-mode self-provisioned API key name prefix
+)
