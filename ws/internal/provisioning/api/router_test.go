@@ -1884,7 +1884,7 @@ func TestRouter_TokenRevocation_EditionGate(t *testing.T) {
 	store := revocation.New(zerolog.Nop())
 	t.Cleanup(store.Close)
 	bus := eventbus.New(zerolog.Nop())
-	revHandler := api.NewRevocationHandler(store, bus, time.Hour, zerolog.Nop())
+	revHandler := api.NewRevocationHandler(store, bus, time.Hour, 30, 5, zerolog.Nop())
 
 	body := `{"sub":"user-123"}`
 

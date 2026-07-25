@@ -51,34 +51,36 @@ func newValidProvisioningConfig() *ProvisioningConfig {
 			HTTPWriteTimeout: 15 * time.Second,
 			HTTPIdleTimeout:  60 * time.Second,
 		},
-		Addr:                        ":8080",
-		GRPCPort:                    9090,
-		WebhookWorkerGRPCPort:       9091,
-		DefaultPartitions:           3,
-		DefaultRetentionMs:          604800000,
-		MaxTopicsPerTenant:          50,
-		MaxPartitionsPerTenant:      200,
-		MaxStorageBytes:             10737418240,
-		ProducerByteRate:            10485760,
-		ConsumerByteRate:            52428800,
-		MaxRoutingRulesPerTenant:    100,
-		MaxTopicsPerRule:            10,
-		DeadLetterTopicPartitions:   1,
-		DeadLetterTopicRetentionMs:  604800000,
-		InfraTopicReplicationFactor: 1,
-		DeprovisionGraceDays:        30,
-		LifecycleCheckInterval:      time.Hour,
-		LifecycleManagerEnabled:     true,
-		APIRateLimitPerMinute:       60,
-		KeyRegistryRefreshInterval:  time.Minute,
-		KeyRegistryQueryTimeout:     5 * time.Second,
-		ShutdownTimeout:             30 * time.Second,
-		CORSAllowedOrigins:          []string{"http://localhost:3000"},
-		CORSMaxAge:                  3600,
-		MaxTenantsFetchLimit:        10000,
-		DeletionTimeout:             5 * time.Minute,
-		SlugRenameTopicHoldPeriod:   7 * 24 * time.Hour, // 168h default
-		TokenRevocationMaxLifetime:  time.Hour,          // 1h default
+		Addr:                              ":8080",
+		GRPCPort:                          9090,
+		WebhookWorkerGRPCPort:             9091,
+		DefaultPartitions:                 3,
+		DefaultRetentionMs:                604800000,
+		MaxTopicsPerTenant:                50,
+		MaxPartitionsPerTenant:            200,
+		MaxStorageBytes:                   10737418240,
+		ProducerByteRate:                  10485760,
+		ConsumerByteRate:                  52428800,
+		MaxRoutingRulesPerTenant:          100,
+		MaxTopicsPerRule:                  10,
+		DeadLetterTopicPartitions:         1,
+		DeadLetterTopicRetentionMs:        604800000,
+		InfraTopicReplicationFactor:       1,
+		DeprovisionGraceDays:              30,
+		LifecycleCheckInterval:            time.Hour,
+		LifecycleManagerEnabled:           true,
+		APIRateLimitPerMinute:             60,
+		KeyRegistryRefreshInterval:        time.Minute,
+		KeyRegistryQueryTimeout:           5 * time.Second,
+		ShutdownTimeout:                   30 * time.Second,
+		CORSAllowedOrigins:                []string{"http://localhost:3000"},
+		CORSMaxAge:                        3600,
+		MaxTenantsFetchLimit:              10000,
+		DeletionTimeout:                   5 * time.Minute,
+		SlugRenameTopicHoldPeriod:         7 * 24 * time.Hour, // 168h default
+		TokenRevocationMaxLifetime:        time.Hour,          // 1h default
+		TokenRevocationRateLimitPerMinute: 30,                 // 30/min default
+		TokenRevocationRateLimitBurst:     5,                  // burst 5 default
 		CredentialsConfig: CredentialsConfig{
 			CredentialsEncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64-char hex = 32 bytes
 		},
@@ -674,6 +676,41 @@ func TestProvisioningConfig_Validate_TokenRevocationMaxLifetime(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Errorf("Should not error: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisioningConfig_Validate_TokenRevocationRateLimit(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		perMin, burst int
+		wantErrSubstr string
+	}{
+		{"valid defaults", 30, 5, ""},
+		{"perMin zero", 0, 5, "PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_PER_MIN"},
+		{"perMin negative", -1, 5, "PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_PER_MIN"},
+		{"burst zero", 30, 0, "PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_BURST"},
+		{"burst negative", 30, -1, "PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_BURST"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := newValidProvisioningConfig()
+			cfg.TokenRevocationRateLimitPerMinute = tt.perMin
+			cfg.TokenRevocationRateLimitBurst = tt.burst
+			err := cfg.Validate()
+			if tt.wantErrSubstr == "" {
+				if err != nil {
+					t.Errorf("Should not error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Error("Should error")
+			} else if !strings.Contains(err.Error(), tt.wantErrSubstr) {
+				t.Errorf("Error should mention %s: %v", tt.wantErrSubstr, err)
 			}
 		})
 	}

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/common/expfmt"
@@ -35,39 +37,86 @@ type revokeRequest struct {
 	Exp *int64 `json:"exp,omitempty"`
 }
 
-// revokeTokenWithClient sends a token revocation request using the provided HTTP client.
-// Returns (statusCode, nil) on any completed HTTP exchange — callers must inspect the status code.
-// Returns (0, err) on network/request-build errors only.
-func revokeTokenWithClient(ctx context.Context, client *http.Client, baseURL, token, tenantID string, req revokeRequest) (int, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return 0, fmt.Errorf("revokeToken: marshal: %w", err)
-	}
-	// baseURL is normalized to http(s):// (httpURL is a no-op on an already-http URL). The revoke
-	// route is served ONLY by the provisioning admin API — the gateway does not proxy it. The validate
-	// suite passes the provisioning base URL (correct). soak/stress still pass the gateway URL, so their
-	// revokes hit an unregistered gateway route (404); that pre-existing mis-targeting is tracked in #199.
+// Revoke rate-limit retry bounds for the validate suite (defense-in-depth §II): the revoke endpoint
+// has a dedicated per-IP limiter (429 + Retry-After) independent of the global API limiter, and the
+// high-volume single-IP suite can transiently exhaust it. revokeToken honors Retry-After up to these
+// bounds so the suite is a well-mannered client regardless of the configured limit.
+const (
+	maxRevokeRateLimitRetries = 6
+	defaultRevokeRetryAfter   = 2 * time.Second // used when the 429 omits a parseable Retry-After
+	maxRevokeRetryAfter       = 5 * time.Second // cap a single wait so a hostile/huge header can't stall the suite
+)
+
+// doRevokeOnce performs a single revoke POST and returns the status code, the parsed (clamped)
+// Retry-After delay, and any request-build/transport error. The revoke route is served ONLY by the
+// provisioning admin API — the gateway does not proxy it; the validate suite passes the provisioning
+// base URL (correct). soak/stress still pass the gateway URL, so their revokes hit an unregistered
+// gateway route (404); that pre-existing mis-targeting is tracked in #199.
+func doRevokeOnce(ctx context.Context, client *http.Client, baseURL, token, tenantID string, body []byte) (int, time.Duration, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		httpURL(baseURL)+"/api/v1/tenants/"+tenantID+"/tokens/revoke",
 		bytes.NewReader(body))
 	if err != nil {
-		return 0, fmt.Errorf("revokeToken: new request: %w", err)
+		return 0, 0, fmt.Errorf("revokeToken: new request: %w", err)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return 0, fmt.Errorf("revokeToken: do: %w", err)
+		return 0, 0, fmt.Errorf("revokeToken: do: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // drain body
-	return resp.StatusCode, nil
+	return resp.StatusCode, parseRetryAfter(resp.Header.Get("Retry-After")), nil
+}
+
+// parseRetryAfter parses a delta-seconds Retry-After header into a bounded wait, defaulting when the
+// header is absent or unparseable and clamping to maxRevokeRetryAfter.
+func parseRetryAfter(header string) time.Duration {
+	d := defaultRevokeRetryAfter
+	if secs, err := strconv.Atoi(strings.TrimSpace(header)); err == nil && secs > 0 {
+		d = time.Duration(secs) * time.Second
+	}
+	return min(d, maxRevokeRetryAfter)
+}
+
+// revokeTokenWithClient sends a token revocation request using the provided HTTP client (single
+// attempt — used by the stress/soak runners, which drive their own withRetry). Returns (statusCode,
+// nil) on any completed HTTP exchange — callers must inspect the status code. Returns (0, err) on
+// network/request-build errors only.
+func revokeTokenWithClient(ctx context.Context, client *http.Client, baseURL, token, tenantID string, req revokeRequest) (int, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return 0, fmt.Errorf("revokeToken: marshal: %w", err)
+	}
+	status, _, err := doRevokeOnce(ctx, client, baseURL, token, tenantID, body)
+	return status, err
 }
 
 // revokeToken sends a token revocation request to the provisioning admin API
-// (POST /api/v1/tenants/{tenantID}/tokens/revoke — not proxied by the gateway).
+// (POST /api/v1/tenants/{tenantID}/tokens/revoke — not proxied by the gateway). It transparently
+// retries HTTP 429 (the revoke rate limit), honoring the Retry-After header up to a bounded number of
+// attempts, and returns the first non-429 status — or 429 if the retries are exhausted.
 func revokeToken(ctx context.Context, baseURL, token, tenantID string, req revokeRequest) (int, error) {
-	return revokeTokenWithClient(ctx, &http.Client{Timeout: editionHTTPTimeout}, baseURL, token, tenantID, req)
+	body, err := json.Marshal(req)
+	if err != nil {
+		return 0, fmt.Errorf("revokeToken: marshal: %w", err)
+	}
+	client := &http.Client{Timeout: editionHTTPTimeout}
+	for attempt := 0; ; attempt++ {
+		status, retryAfter, doErr := doRevokeOnce(ctx, client, baseURL, token, tenantID, body)
+		if doErr != nil {
+			return 0, doErr
+		}
+		if status != http.StatusTooManyRequests || attempt >= maxRevokeRateLimitRetries {
+			return status, nil
+		}
+		select {
+		case <-time.After(retryAfter):
+		case <-ctx.Done():
+			return status, fmt.Errorf("revokeToken: %w", ctx.Err())
+		}
+	}
 }
 
 // isErrorRateExceeded returns true when the error rate strictly exceeds the threshold.

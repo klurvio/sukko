@@ -19,7 +19,7 @@ import (
 func newTestRevocationHandler() (*RevocationHandler, *chi.Mux) {
 	store := revocation.New(zerolog.Nop())
 	bus := eventbus.New(zerolog.Nop())
-	h := NewRevocationHandler(store, bus, 24*time.Hour, zerolog.Nop())
+	h := NewRevocationHandler(store, bus, 24*time.Hour, 30, 5, zerolog.Nop())
 
 	r := chi.NewRouter()
 	r.Post("/api/v1/tenants/{tenantSlug}/tokens/revoke", h.HandleRevoke)
@@ -149,7 +149,7 @@ func TestHandleRevoke_ExpClampedToMax(t *testing.T) {
 	// Use a 1h max lifetime so the cap is easy to reason about.
 	store := revocation.New(zerolog.Nop())
 	bus := eventbus.New(zerolog.Nop())
-	h := NewRevocationHandler(store, bus, time.Hour, zerolog.Nop())
+	h := NewRevocationHandler(store, bus, time.Hour, 30, 5, zerolog.Nop())
 	t.Cleanup(store.Close)
 
 	r := chi.NewRouter()
@@ -182,6 +182,33 @@ func TestHandleRevoke_ExpClampedToMax(t *testing.T) {
 	// expires_at must not equal the far-future exp the client supplied.
 	if parsed.Unix() == farFutureExp {
 		t.Errorf("expires_at = client-supplied %d; clamping did not fire", farFutureExp)
+	}
+}
+
+// TestNewRevocationHandler_RetryAfter covers the computed Retry-After seconds across the default,
+// the boundary, and the >60/min floor case (the e2e override raises the rate to 100000) — §VIII.
+func TestNewRevocationHandler_RetryAfter(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		perMin  int
+		wantSec int
+	}{
+		{"default 30/min → 2s (historical rate.Every(2s))", 30, 2},
+		{"60/min → 1s", 60, 1},
+		{"120/min → floored to 1s (60/120=0)", 120, 1},
+		{"e2e 100000/min → floored to 1s", 100000, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := revocation.New(zerolog.Nop())
+			t.Cleanup(store.Close)
+			h := NewRevocationHandler(store, eventbus.New(zerolog.Nop()), time.Hour, tc.perMin, 5, zerolog.Nop())
+			if h.retryAfterSeconds != tc.wantSec {
+				t.Errorf("perMin=%d: retryAfterSeconds = %d, want %d", tc.perMin, h.retryAfterSeconds, tc.wantSec)
+			}
+		})
 	}
 }
 

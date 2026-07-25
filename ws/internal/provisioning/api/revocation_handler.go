@@ -34,8 +34,7 @@ const (
 	revResultError          = "error"
 	revResultSuccess        = "success"
 
-	revocationRateLimitInterval = 2 * time.Second
-	revocationRateLimitBurst    = 5
+	secondsPerMinute = 60
 )
 
 // revocationRequest is the JSON body for POST /api/v1/tenants/{tenantSlug}/tokens/revoke.
@@ -59,16 +58,22 @@ type RevocationHandler struct {
 	eventBus              *eventbus.Bus
 	logger                zerolog.Logger
 	limiter               *ipRateLimiter
+	retryAfterSeconds     int
 	maxRevocationLifetime time.Duration
 }
 
-// NewRevocationHandler creates a handler for the token revocation endpoint.
-func NewRevocationHandler(store *revocation.Store, bus *eventbus.Bus, maxLifetime time.Duration, logger zerolog.Logger) *RevocationHandler {
+// NewRevocationHandler creates a handler for the token revocation endpoint. ratePerMinute and burst
+// configure the per-IP rate limiter (independent of the global API limiter); both must be > 0
+// (validated at config load). retryAfterSeconds advertised on a 429 is the refill time for one token,
+// floored at 1s.
+func NewRevocationHandler(store *revocation.Store, bus *eventbus.Bus, maxLifetime time.Duration, ratePerMinute, burst int, logger zerolog.Logger) *RevocationHandler {
+	retryAfter := max(secondsPerMinute/ratePerMinute, 1)
 	return &RevocationHandler{
 		store:                 store,
 		eventBus:              bus,
 		logger:                logger.With().Str("handler", "revocation").Logger(),
-		limiter:               newIPRateLimiter(rate.Every(revocationRateLimitInterval), revocationRateLimitBurst),
+		limiter:               newIPRateLimiter(rate.Limit(float64(ratePerMinute)/secondsPerMinute), burst),
+		retryAfterSeconds:     retryAfter,
 		maxRevocationLifetime: maxLifetime,
 	}
 }
@@ -79,7 +84,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 	clientIP := httputil.GetClientIP(r)
 	if !h.limiter.allow(clientIP) {
 		revocationTotal.WithLabelValues(revTypeUnknown, revResultRateLimited).Inc()
-		w.Header().Set("Retry-After", strconv.Itoa(int(revocationRateLimitInterval.Seconds())))
+		w.Header().Set("Retry-After", strconv.Itoa(h.retryAfterSeconds))
 		httputil.WriteError(w, http.StatusTooManyRequests, errCodeRateLimited, "too many revocation requests")
 		return
 	}

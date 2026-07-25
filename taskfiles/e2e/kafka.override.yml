@@ -36,3 +36,7 @@ services:
       # limit so the e2e isn't throttled by a production-facing security control (§IX) that is
       # meaningless for a single-IP test harness. (Harmless for the 2-suite kafka-ingest task.)
       API_RATE_LIMIT_PER_MIN: "100000"
+      # Same rationale for the dedicated per-IP revoke limiter (independent of
+      # API_RATE_LIMIT_PER_MIN): the token-revocation suite issues many revokes from one host,
+      # so raise it well above the 30/min production default.
+      PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_PER_MIN: "100000"

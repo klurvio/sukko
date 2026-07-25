@@ -133,6 +133,15 @@ type ProvisioningConfig struct {
 	// before the background prune loop removes it. Must be > 0. Default: 1h.
 	TokenRevocationMaxLifetime time.Duration `env:"PROVISIONING_TOKEN_REVOCATION_MAX_LIFETIME" envDefault:"1h"` // Maximum duration to retain a revoked token record before the prune loop removes it.
 
+	// TokenRevocationRateLimitPerMinute is the per-IP sustained rate for the token-revocation
+	// endpoint (POST /tokens/revoke), independent of API_RATE_LIMIT_PER_MIN. Must be > 0.
+	// Default 30 preserves the historical rate.Every(2s). Raise for high-volume single-IP callers.
+	TokenRevocationRateLimitPerMinute int `env:"PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_PER_MIN" envDefault:"30"` // Maximum token-revocation requests per minute per IP before HTTP 429; independent of API_RATE_LIMIT_PER_MIN.
+
+	// TokenRevocationRateLimitBurst is the per-IP burst for the token-revocation endpoint. Must be > 0.
+	// Default 5 preserves the historical burst.
+	TokenRevocationRateLimitBurst int `env:"PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_BURST" envDefault:"5"` // Burst allowance for token-revocation requests per IP before HTTP 429 is returned.
+
 	// ValkeyConfig is the dedicated Valkey client config for the connections registry reader.
 	// The envPrefix:"PROVISIONING_" tag makes effective env var names PROVISIONING_VALKEY_ADDRS, etc.
 	// PROVISIONING_VALKEY_ADDRS has no envDefault — required runtime value (K8s service discovery);
@@ -295,6 +304,12 @@ func (c *ProvisioningConfig) Validate() error {
 	}
 	if c.APIRateLimitPerMinute < 1 {
 		return fmt.Errorf("API_RATE_LIMIT_PER_MIN must be > 0, got %d", c.APIRateLimitPerMinute)
+	}
+	if c.TokenRevocationRateLimitPerMinute < 1 {
+		return fmt.Errorf("PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_PER_MIN must be > 0, got %d", c.TokenRevocationRateLimitPerMinute)
+	}
+	if c.TokenRevocationRateLimitBurst < 1 {
+		return fmt.Errorf("PROVISIONING_TOKEN_REVOCATION_RATE_LIMIT_BURST must be > 0, got %d", c.TokenRevocationRateLimitBurst)
 	}
 
 	// Shared field validation (LogLevel, LogFormat, Environment)
@@ -487,6 +502,7 @@ func (c *ProvisioningConfig) Print() {
 	_, _ = fmt.Fprintf(w, "Token Revoc TTL:    %s\n", c.TokenRevocationMaxLifetime)
 	_, _ = fmt.Fprintln(w, "\n=== Rate Limiting ===")
 	_, _ = fmt.Fprintf(w, "API Rate Limit:     %d req/min\n", c.APIRateLimitPerMinute)
+	_, _ = fmt.Fprintf(w, "Revoke Rate Limit:  %d req/min (burst %d)\n", c.TokenRevocationRateLimitPerMinute, c.TokenRevocationRateLimitBurst)
 	_, _ = fmt.Fprintln(w, "\n=== HTTP Server ===")
 	_, _ = fmt.Fprintf(w, "Read Timeout:       %s\n", c.HTTPReadTimeout)
 	_, _ = fmt.Fprintf(w, "Write Timeout:      %s\n", c.HTTPWriteTimeout)
@@ -523,6 +539,8 @@ func (c *ProvisioningConfig) LogConfig(logger zerolog.Logger) {
 		Dur("slug_rename_topic_hold_period", c.SlugRenameTopicHoldPeriod).
 		Dur("token_revocation_max_lifetime", c.TokenRevocationMaxLifetime).
 		Int("api_rate_limit_per_min", c.APIRateLimitPerMinute).
+		Int("token_revocation_rate_limit_per_min", c.TokenRevocationRateLimitPerMinute).
+		Int("token_revocation_rate_limit_burst", c.TokenRevocationRateLimitBurst).
 		Dur("http_read_timeout", c.HTTPReadTimeout).
 		Dur("http_write_timeout", c.HTTPWriteTimeout).
 		Dur("http_idle_timeout", c.HTTPIdleTimeout).
