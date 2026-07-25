@@ -739,11 +739,15 @@ func (p *Proxy) interceptAuthRefresh(ctx context.Context, clientMsg protocol.Cli
 		return p.sendAuthErrorToClient(AuthErrTenantMismatch, AuthErrorMessages[AuthErrTenantMismatch])
 	}
 
-	// 5b. If API key tenant is set, verify JWT tenant matches API key tenant
-	if p.apiKeyTenantID != "" && newClaims.TenantID != p.apiKeyTenantID {
+	// 5b. On an API-key-origin connection, bind the refreshed JWT to the API key's owning
+	// tenant by its identity-of-record UUID (complementing step 5's slug binding). Compare
+	// the token's *resolved* tenant UUID against the key's tenant UUID — never the TenantID
+	// slug, which is a different representation and never matches (MatchesTenantUUID; same
+	// check the connect path uses).
+	if p.apiKeyTenantID != "" && !newClaims.MatchesTenantUUID(p.apiKeyTenantID) {
 		p.logger.Warn().
 			Str("api_key_tenant", p.apiKeyTenantID).
-			Str("token_tenant", newClaims.TenantID).
+			Str("token_tenant_uuid", newClaims.ResolvedTenantUUID).
 			Msg("Auth refresh: JWT tenant does not match API key tenant")
 		RecordAuthRefresh(AuthErrTenantMismatch)
 		return p.sendAuthErrorToClient(AuthErrTenantMismatch, AuthErrorMessages[AuthErrTenantMismatch])
