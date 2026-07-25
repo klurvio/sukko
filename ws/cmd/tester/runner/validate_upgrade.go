@@ -12,6 +12,15 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Auth-upgrade frame types. Tester-local constants (§I): the tester matches wire frame
+// types as bare strings and imports no internal/gateway code (§X decoupling), mirroring
+// respTypeSubscribeError in the api-key suite.
+const (
+	msgTypeAuth       = "auth"       // client→server: the upgrade request carrying a JWT
+	respTypeAuthAck   = "auth_ack"   // server→client: upgrade accepted
+	respTypeAuthError = "auth_error" // server→client: upgrade rejected (e.g. expired JWT)
+)
+
 // validateUpgrade runs the upgrade validation suite.
 // Validates the auth upgrade flow: connect with API key, send auth message,
 // receive auth_ack, then verify upgrade success via counter.
@@ -99,7 +108,7 @@ func upgradeCheck(ctx context.Context, run *TestRun, logger zerolog.Logger, nega
 		APIKey:     run.apiKey,
 		Logger:     logger.With().Str("phase", checkName).Logger(),
 		OnMessage: func(msg testerws.Message) {
-			if msg.Type == "auth_ack" || msg.Type == "auth_error" {
+			if msg.Type == respTypeAuthAck || msg.Type == respTypeAuthError {
 				select {
 				case ackCh <- msg:
 				default:
@@ -157,13 +166,13 @@ func upgradeCheck(ctx context.Context, run *TestRun, logger zerolog.Logger, nega
 	select {
 	case msg := <-ackCh:
 		upgradeCancel() // stop ReadLoop promptly
-		if !negative && msg.Type == "auth_ack" {
+		if !negative && msg.Type == respTypeAuthAck {
 			run.Collector.ConnectionsUpgrade.Add(1)
 			return []metrics.CheckResult{{
 				Name:   checkName,
 				Status: metrics.CheckStatusPass,
 			}}
-		} else if negative && msg.Type == "auth_error" {
+		} else if negative && msg.Type == respTypeAuthError {
 			return []metrics.CheckResult{{
 				Name:   checkName,
 				Status: metrics.CheckStatusPass,

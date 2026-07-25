@@ -243,12 +243,15 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 
 	// §II defense-in-depth: validate auth mode and mode/type combinations.
 	// The handler also validates, but the runner validates again for programmatic callers.
-	// Auth-mode inference (§XV): suite=api-key has exactly one legal mode (api-key), so an
-	// absent auth_mode for a validate run of that suite resolves to api-key — this completes
-	// a mandatory 1:1 mapping, it is not multi-meaning mode detection. Kept in lockstep with
-	// the handler boundary (§II). Every other absent-mode request still defaults to jwt.
+	// Auth-mode inference (§XV): suite=api-key and suite=upgrade each have exactly one legal
+	// mode, so an absent auth_mode for a validate run of those suites resolves to that mode —
+	// this completes a mandatory 1:1 mapping, it is not multi-meaning mode detection. Kept in
+	// lockstep with the handler boundary (§II). Every other absent-mode request defaults to jwt.
 	if cfg.AuthMode == "" && cfg.Type == TestValidate && cfg.Suite == SuiteAPIKey {
 		cfg.AuthMode = AuthModeAPIKey
+	}
+	if cfg.AuthMode == "" && cfg.Type == TestValidate && cfg.Suite == SuiteUpgrade {
+		cfg.AuthMode = AuthModeUpgrade
 	}
 	if cfg.AuthMode == "" {
 		cfg.AuthMode = AuthModeJWT // backward compat: missing auth_mode defaults to jwt
@@ -289,9 +292,9 @@ func (r *Runner) Start(id string, cfg TestConfig) (*TestRun, error) {
 		if cfg.Suite != "" && cfg.Suite != SuiteUpgrade {
 			return nil, fmt.Errorf("auth_mode=upgrade only supports suite=%s, got suite=%s: %w", SuiteUpgrade, cfg.Suite, ErrInvalidConfig)
 		}
-		if cfg.TenantID == "" {
-			return nil, fmt.Errorf("auth_mode=upgrade requires tenant_id: %w", ErrInvalidConfig)
-		}
+		// tenant_id is optional in upgrade mode (FR-008): empty/absent/null → auth.Setup
+		// self-provisions a throwaway tenant; a supplied tenant_id is used as-is. Guard removed
+		// in lockstep with the handler boundary (§II).
 	}
 
 	// suite=revocation is only valid for stress and soak test types.
@@ -525,6 +528,24 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 		if keyErr != nil {
 			r.failRun(run, fmt.Sprintf("create api-key-mode api key: %v", keyErr))
 			logger.Error().Err(keyErr).Msg("failed to create api-key-mode api key")
+			return
+		}
+		run.apiKey = keyID
+	}
+
+	// Upgrade mode with no supplied key: self-provision a run-scoped key to make the initial
+	// API-key connection (the JWT keypair + Minter + throwaway tenant already come from
+	// auth.Setup). Teardown is three-resource LIFO: this revoke defer runs FIRST (api key),
+	// then authResult.Cleanup (deferred earlier by auth.Setup) revokes the JWT keypair and
+	// deletes the tenant.
+	if run.Config.AuthMode == AuthModeUpgrade && run.apiKey == "" {
+		keyID, revoke, keyErr := selfProvisionAPIKey(ctx, authResult, upgradeKeyNamePrefix+run.ID, logger)
+		if revoke != nil {
+			defer revoke()
+		}
+		if keyErr != nil {
+			r.failRun(run, fmt.Sprintf("create upgrade-mode api key: %v", keyErr))
+			logger.Error().Err(keyErr).Msg("failed to create upgrade-mode api key")
 			return
 		}
 		run.apiKey = keyID
