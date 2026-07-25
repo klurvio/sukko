@@ -145,7 +145,7 @@ It runs as the `e2e-push-validate` job of the `CI` workflow (`workflow_dispatch`
 | `TESTER_API_KEY` | — | api-key / upgrade modes | Static pre-provisioned API key. Required when the **service-level** `TESTER_AUTH_MODE` is `api-key` or `upgrade`; optional for `mixed`. Not required for a **per-request** `--suite api-key` or `--suite upgrade` validate run, which auto-provisions a key when absent (§2.17, §2.18). **Never echoed by the `/config` endpoint** (`redact:"true"`). |
 | `TESTER_AUTH_MIX_RATIO` | `0.5` | no | Fraction of connections using API key in `mixed` mode (range 0.0–1.0). Applies to load/soak only. |
 | `TESTER_AUTH_UPGRADE_TIMEOUT` | `10s` | no | Timeout waiting for `auth_ack` during upgrade flow. Max 60s. |
-| `TESTER_GATEWAY_METRICS_URL` | — | stress:revocation / soak:revocation | Prometheus `/metrics` endpoint of the gateway pod (e.g. `http://gateway-pod:9090`). Leave empty to skip gateway-side metric checks. Must use `http://` or `https://` scheme. Single-replica gateway required. |
+| `TESTER_GATEWAY_METRICS_URL` | — | stress:revocation / soak:revocation / validate:token-revocation | Prometheus `/metrics` endpoint of the gateway pod (e.g. `http://gateway-pod:9090`). Leave empty to skip gateway-side metric checks. The `token-revocation` validate suite requires it: its readiness gate polls `gateway_token_revocation_stream_state` before revoking (cold-start ordering). In the compose grid it is preset (`docker-compose.yml`), no operator action. Must use `http://` or `https://` scheme. Single-replica gateway required. |
 | `TESTER_GATEWAY_METRICS_INTERVAL` | `30s` | no | Poll interval for gateway Prometheus metrics scrapes. Must be positive. |
 | `TESTER_WEBHOOK_BASE_URL` | — | webhooks suite | Externally-reachable base URL this tester pod exposes to the webhook-worker (e.g. `http://tester.sukko-ci.svc.cluster.local:8085`). When empty, the `webhooks` suite is skipped. Must use `http://` or `https://` scheme. |
 | `TESTER_WEBHOOK_DELIVERY_TIMEOUT` | `15s` | no | Maximum time to wait for the initial webhook delivery in the happy-path scenario. Max 5m. |
@@ -191,10 +191,10 @@ Named anchor cells wrap the runner with their suite sets:
 
 | Cell (`task e2e:cell:<name>`) | Edition | Backend | Type | Suites / assertion |
 |---|---|---|---|---|
-| `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning api-key` |
-| `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation` |
+| `community-direct` | Community (no license) | direct | positive | `channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning api-key upgrade` |
+| `pro-direct` | Pro | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation provisioning token-revocation` |
 | `enterprise-direct` | Enterprise | direct | positive | `channels pubsub ordering reconnect sse auth edition-limits rest-publish` |
-| `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish tenant-isolation` |
+| `pro-kafka` | Pro | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish tenant-isolation provisioning token-revocation` |
 | `enterprise-kafka` | Enterprise | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish` |
 | `community-kafka-refused` | Community (no license) | kafka | **negative** | boot MUST fail: ws-server exits non-zero with the kafka edition-gate error |
 | `expired-direct` | Pro, expired (`-1d`) → Community | direct | degradation | gate `edition=community`+`expired=true`; suite `edition-limits` |
@@ -234,6 +234,26 @@ existing Pro/Enterprise-gated CRUD checks (`get/update quota`, `suspend/reactiva
 emit explicit skips — each enumerated in `ALLOWED_SKIPS` — while `routing cross-tenant mismatch` (pre-edition-gate
 `TENANT_MISMATCH`) and `routing edition gate` (the Community feature-gate assertion) are forced present-and-`pass`
 via `REQUIRE_PASS`. Every skip is exact-code (`EDITION_LIMIT`) discriminated, never a pass.
+
+**`token-revocation` gating.** The token-revocation suite (§2.13 — jti/sub force-disconnect, SSE
+disconnect, revoke-endpoint validation, cross-tenant rejection) is gated into both Pro cells:
+`pro-kafka` (on the push-to-main smoke cadence, so the §IX-critical revocation pipeline is
+regression-gated per push) and `pro-direct` (isolates the backend axis — the suite is
+backend-agnostic, driven over the gateway↔provisioning revocation gRPC stream with no message
+publishes). It is **Pro-gated**: on Community every check collapses to a single `edition-gate`
+skip (and the channel/routing-rules APIs the SSE scenario needs are themselves Pro-gated), so it
+is never gated into a Community cell; the `enterprise-*` cells are intentionally excluded (their
+only delta is that push cleanup — Enterprise-only — would flip from a skip to a required pass;
+tracked as a future extension, not new pipeline coverage). Both cells force all **16** fail-closed
+checks present-and-`pass` via `REQUIRE_PASS` and `ALLOWED_SKIPS` exactly two legitimate Pro skips
+(`push-registration-deleted` — push is Enterprise-gated; `apikey-survives-revoke` — skips by
+design, no API key in the tester config). `sub-force-disconnect-all` is a fail-only setup-collapse
+alias and is **not** enumerated (present-and-`pass` on the three per-connection
+`sub-force-disconnect-0/1/2` names catches a setup failure); `edition-gate` is deliberately
+un-enumerated so a Community-misbooted stack reds the cell via the undeclared skip. A readiness
+gate (`revocation-stream-ready`, polling `gateway_token_revocation_stream_state`) confirms the
+gateway's revocation stream is connected before any revoke is issued — the cold-start-ordering
+guard.
 
 **Negative cell (`community-kafka-refused`).** Instead of running suites, it asserts the
 stack REFUSES to boot for the right reason: `e2e_assert_boot_refused` reuses the boot path
@@ -275,9 +295,9 @@ the end. The generic guard is `e2e_battery_verdict` and the negative-cell guard 
 `taskfiles/e2e/battery_guard_test.sh`).
 
 **Not yet in the grid (tracked for triage):**
-`token-revocation`, `ratelimit` —
-each surfaced a real first-contact finding when first run against a live gateway (see the
-validate-battery backlog issue). `kafka-ingest` runs in its own kafka-mode job and `push` in
+`ratelimit` —
+surfaced a real first-contact finding when first run against a live gateway (see the
+validate-battery backlog issue). (`token-revocation` is now gated into the Pro cells — §2.13.) `kafka-ingest` runs in its own kafka-mode job and `push` in
 the `e2e-push-validate` job (Enterprise + `MESSAGE_BACKEND=kafka`, §1.3); `webhooks` is
 deferred (webhook-worker boot bugs);
 `license-reload` stays in the manual `task e2e:license` family (mutates edition mid-run);
@@ -298,7 +318,7 @@ load/soak/stress are scale tests.
 | 9 | `rest-publish` | Pro | no | REST publish delivery (`/api/v1/publish` is Pro-gated) |
 | 10 | `provisioning` | Community | **yes** | Provisioning API CRUD + e2e-unique routing-rules coverage (topic gate, role/tenant isolation, error-code mapping, pagination, normalization) + rename & test-access coverage (all-editions). Gated into `community-direct`/`pro-kafka`/`pro-direct` (§2.11) |
 | 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation |
-| 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect |
+| 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect (jti/sub WS + SSE), revoke-endpoint validation, cross-tenant rejection. Gated into `pro-kafka`/`pro-direct` (§2.13) |
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
 | 14 | `push` | Enterprise | no | Push notification pipeline, including **actual Web Push delivery**: registers a device against the tester's mock receiver (`TESTER_PUSH_RECEIVER_HOST`) with real P-256 client keys and asserts the encrypted notification arrives (RFC 8030). Delivery check skips when the receiver host is unset (managed deployments). **Real delivery is Web Push (VAPID) only** — the FCM (Android) / APNs (iOS) legs register with fake provider tokens and assert subscription acceptance, not delivery (real mobile delivery tracked as #175). |
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
@@ -559,42 +579,83 @@ runs on all editions. Requires admin keypair.
 sukko test validate --suite token-revocation
 ```
 
-Validates token revocation behavior end-to-end. Requires Pro edition and admin
-keypair.
+Validates the token-revocation pipeline end-to-end against a live stack: a revoke published
+through the provisioning admin API (`POST /api/v1/tenants/{tenant}/tokens/revoke` — served
+ONLY by provisioning, not proxied by the gateway) propagates over the gateway↔provisioning
+revocation gRPC stream and force-disconnects live clients. Requires Pro edition and an admin
+keypair. Before any revoke, a **readiness gate** (`revocation-stream-ready`) polls the gateway
+metric `gateway_token_revocation_stream_state` (via `TESTER_GATEWAY_METRICS_URL`) until the
+stream is connected — the cold-start-ordering guard that stops a revoke being missed before the
+gateway has its snapshot.
 
-**Scenarios covered**:
-1. **Sub revocation**: revoke all tokens for a user by `sub` — connected client is
-   force-disconnected with close code 1008 (Policy Violation)
-2. **JTI revocation**: revoke a specific token by `jti` — same close code
-3. **Invalid revocations**: Community edition gate — POST to `/tokens/revoke` returns
-   HTTP 403 `{"code":"EDITION_LIMIT",...}`
-4. **Push cleanup** (Enterprise only): push subscription deleted on revocation
+**Scenarios & checks** (16 fail-closed on Pro + 2 skips):
+1. **jti revocation (WS)** — revoke by `jti`; the connected client is force-closed with code
+   1008 (`jti-force-disconnect`), the same token is rejected on reconnect with 401
+   (`jti-reject-reconnect`), and a different jti still connects (`jti-unaffected`).
+2. **sub revocation (WS)** — revoke by `sub` with three live connections; all three are
+   force-closed (`sub-force-disconnect-0/1/2`), a token issued after the revocation is allowed
+   (`sub-new-token-allowed`), one issued before is rejected (`sub-old-token-rejected`), and the
+   `iat == revoked_at` boundary is allowed under the strict `<` comparison (`sub-iat-boundary`).
+3. **SSE force-disconnect** — an SSE stream on a revoked jti terminates (`sse-force-disconnect`).
+4. **Push cleanup** (Enterprise only) — the push registration is deleted on revocation
+   (`push-registration-deleted`); **skipped on Pro** (push is Enterprise-gated).
+5. **Endpoint validation + cross-tenant** — neither/both of `sub`+`jti` → 400
+   (`revoke-missing-fields`, `revoke-both-fields`); tenant B's JWT against tenant A's revoke
+   route → 403 (`revoke-tenant-mismatch`, §IX). Edges: revoke with no active connection → 200
+   (`revoke-no-active-conn`), the same jti twice → 200 (`revoke-idempotent`). An API-key-only
+   connection surviving revocation (`apikey-survives-revoke`) is **skipped by design** — the
+   tester run has no provisioned API key (that path is covered by the `api-key` suite).
 
-**Minimum edition**: Pro (for full pass; Community returns `pass` with one `[skip]`
-on the edition-gate check — `Report.Status` is still `pass`)
+`sub-force-disconnect-all` is a collective **fail-only** alias emitted only when the sub-scenario
+setup collapses before the per-connection waits — on a passing run just the three
+`sub-force-disconnect-0/1/2` names appear.
 
-**Admin key**: required
+**Minimum edition**: Pro. On Community the suite early-returns a single `edition-gate` **skip** —
+the *suite report* is still `Status: pass`, but in a grid cell the *cell verdict* REDS
+(`edition-gate` is not in `ALLOWED_SKIPS`), which is why the suite is gated only into Pro cells.
+
+**Admin key**: required (for the cross-tenant scenario's second registered tenant).
+
+**Prerequisite**: `TESTER_GATEWAY_METRICS_URL` (the readiness gate) — preset in the compose grid.
+
+**Grid cells**: `pro-kafka`, `pro-direct` (all 16 fail-closed checks `REQUIRE_PASS`; the only
+tolerated skips are `push-registration-deleted` and `apikey-survives-revoke`)
 
 **Expected passing output (Pro)**:
 ```
 Suite: token-revocation  Status: pass
-  [pass] sub_revocation_force_disconnect
-  [pass] jti_revocation_force_disconnect
-  [skip] push_cleanup  (requires Enterprise)
+  [pass] revocation-stream-ready
+  [pass] jti-force-disconnect
+  [pass] jti-reject-reconnect
+  [pass] jti-unaffected
+  [pass] sub-force-disconnect-0
+  [pass] sub-force-disconnect-1
+  [pass] sub-force-disconnect-2
+  [pass] sub-new-token-allowed
+  [pass] sub-old-token-rejected
+  [pass] sub-iat-boundary
+  [pass] sse-force-disconnect
+  [skip] push-registration-deleted  (requires Enterprise)
+  [pass] revoke-missing-fields
+  [pass] revoke-both-fields
+  [pass] revoke-tenant-mismatch
+  [pass] revoke-no-active-conn
+  [pass] revoke-idempotent
+  [skip] apikey-survives-revoke  (no API key in tester config)
 ```
 
 **Expected output (Community — edition gate)**:
 ```
 Suite: token-revocation  Status: pass
-  [skip] sub_revocation_force_disconnect  (requires Pro)
-  [skip] jti_revocation_force_disconnect  (requires Pro)
-  [skip] push_cleanup  (requires Enterprise)
+  [skip] edition-gate  (token revocation requires Pro+ edition)
 ```
+The suite reports `pass`, but a Pro grid cell would RED on this skip — `edition-gate` is
+undeclared in `ALLOWED_SKIPS`.
 
 **Without admin key**:
 ```
 Suite: token-revocation  Status: error
-  [fail] setup: RequireAdminProvider: admin key file not configured
+  [fail] setup: admin provider required (RequireAdminProvider) but no admin key configured
 ```
 
 ### 2.14 edition-limits
