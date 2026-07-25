@@ -869,10 +869,13 @@ func TestProxy_APIKeyOnly_AuthRefreshTenantMismatch(t *testing.T) {
 		clientConn:  clientConn,
 		backendConn: backendConn,
 
+		// Genuine cross-tenant: connection is tenant-a; the refresh JWT is for tenant-b, so
+		// step 5 (slug) rejects it before step 5b is reached. apiKeyTenantID is the key's
+		// owning tenant UUID, matching how gateway.go wires it.
 		claims:                nil,
 		tenantID:              "tenant-a",
 		apiKeyOnly:            true,
-		apiKeyTenantID:        "tenant-a",
+		apiKeyTenantID:        "aaaaaaaa-0000-0000-0000-00000000000a",
 		logger:                zerolog.Nop(),
 		filterSubscribe:       testAllowTradeFilter("tenant-a"),
 		canPublish:            testAllowTradePublish("tenant-a"),

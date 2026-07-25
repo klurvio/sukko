@@ -132,14 +132,16 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auth mode validation. When auth_mode is absent, infer api-key for a validate run of the
-	// api-key suite (§XV: suite=api-key has exactly one legal mode, so this completes a
+	// Auth mode validation. When auth_mode is absent, infer the mode for a validate run of the
+	// api-key or upgrade suite (§XV: each has exactly one legal mode, so this completes a
 	// mandatory 1:1 mapping — not multi-meaning mode detection); every other absent-mode
 	// request defaults to jwt. Kept in lockstep with the runner boundary (§II).
 	authMode := runner.AuthModeJWT
 	switch {
 	case req.AuthMode == "" && req.Type == string(runner.TestValidate) && req.Suite == runner.SuiteAPIKey:
 		authMode = runner.AuthModeAPIKey
+	case req.AuthMode == "" && req.Type == string(runner.TestValidate) && req.Suite == runner.SuiteUpgrade:
+		authMode = runner.AuthModeUpgrade
 	case req.AuthMode != "":
 		switch runner.AuthMode(req.AuthMode) {
 		case runner.AuthModeJWT, runner.AuthModeAPIKey, runner.AuthModeUpgrade, runner.AuthModeMixed:
@@ -193,11 +195,9 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("auth_mode=upgrade only supports suite=%s, not %q", runner.SuiteUpgrade, req.Suite))
 			return
 		}
-		if req.TenantID == "" {
-			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidRequest,
-				"auth_mode=upgrade requires tenant_id (no throwaway tenant creation in upgrade mode)")
-			return
-		}
+		// tenant_id is optional in upgrade mode (FR-008): empty/absent/null → auth.Setup
+		// self-provisions a throwaway tenant; a supplied tenant_id is used as-is. Guard removed
+		// in lockstep with the runner boundary (§II).
 	}
 
 	// suite=revocation is only valid for stress and soak test types.

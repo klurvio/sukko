@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -265,6 +266,148 @@ func TestInterceptAuthRefresh_TenantMismatch(t *testing.T) {
 		t.Error("Claims should not have changed on tenant mismatch")
 	}
 	proxy.claimsMu.RUnlock()
+}
+
+// newAPIKeyOriginRefreshProxy builds a production-shaped API-key-origin proxy: claims nil,
+// apiKeyOnly=true, the connection tenant carried as the slug, and the API key's owning
+// tenant carried as the UUID (matching how gateway.go wires it). The validator returns the
+// supplied refreshed claims.
+func newAPIKeyOriginRefreshProxy(connSlug, apiKeyUUID string, newClaims *auth.Claims) (proxy *Proxy, client, backend net.Conn) {
+	clientConn, clientRemote := net.Pipe()
+	backendConn, backendRemote := net.Pipe()
+	return &Proxy{
+		clientConn:            clientConn,
+		backendConn:           backendConn,
+		claims:                nil,
+		tenantID:              connSlug,
+		apiKeyOnly:            true,
+		apiKeyTenantID:        apiKeyUUID,
+		filterSubscribe:       testAllowTradeFilter(connSlug),
+		canPublish:            testAllowTradePublish(connSlug),
+		validator:             &mockTokenValidator{claims: newClaims},
+		logger:                zerolog.Nop(),
+		messageTimeout:        60 * time.Second,
+		maxFrameSize:          protocol.DefaultMaxFrameSize,
+		publishLimiter:        rate.NewLimiter(10, 100),
+		maxPublishSize:        64 * 1024,
+		authLimiter:           rate.NewLimiter(rate.Every(100*time.Millisecond), 1),
+		authValidationTimeout: 5 * time.Second,
+		subscribedChannels:    make(map[string]struct{}),
+	}, clientRemote, backendRemote
+}
+
+// TestInterceptAuthRefresh_APIKeyOriginEscalation covers the previously-UNSATISFIABLE flow:
+// an API-key-origin connection upgrades with a same-tenant JWT. Step 5 passes (slug matches)
+// and step 5b passes (the JWT's resolved tenant UUID matches the API key's tenant UUID). The
+// connection escalates and an auth_ack is sent. Before the fix, step 5b compared the JWT's
+// slug against the API key's UUID and rejected every such upgrade.
+func TestInterceptAuthRefresh_APIKeyOriginEscalation(t *testing.T) {
+	t.Parallel()
+	const (
+		connSlug   = "acme"
+		tenantUUID = "3700aa59-5546-4dc0-97dd-fca1f9e303a2"
+	)
+	newClaims := &auth.Claims{
+		RegisteredClaims:   jwt.RegisteredClaims{Subject: "user1", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+		TenantID:           connSlug,   // matches the connection slug → step 5 passes
+		ResolvedTenantUUID: tenantUUID, // matches the API key's tenant UUID → step 5b passes
+	}
+	proxy, clientRemote, backendRemote := newAPIKeyOriginRefreshProxy(connSlug, tenantUUID, newClaims)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+
+	// net.Pipe is unbuffered — CONTINUOUSLY drain the client conn (so the ack write never
+	// blocks) and signal when an auth_ack frame appears. Asserting the ack (not a bare
+	// drain) closes the allowed-side vacuous-pass gap.
+	ackSeen := make(chan struct{}, 1)
+	go func() {
+		tmp := make([]byte, 4096)
+		var acc []byte
+		for {
+			n, err := clientRemote.Read(tmp)
+			if n > 0 {
+				acc = append(acc, tmp[:n]...)
+				if bytes.Contains(acc, []byte(RespTypeAuthAck)) {
+					select {
+					case ackSeen <- struct{}{}:
+					default:
+					}
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	msg := protocol.ClientMessage{Type: MsgTypeAuth, Data: json.RawMessage(`{"token":"same-tenant-jwt"}`)}
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("interceptAuthRefresh error: %v", err)
+	}
+	if result != nil {
+		t.Error("Expected nil result (handled, not forwarded)")
+	}
+
+	proxy.claimsMu.RLock()
+	swapped := proxy.claims == newClaims
+	stillAPIKeyOnly := proxy.apiKeyOnly
+	proxy.claimsMu.RUnlock()
+	if !swapped {
+		t.Error("Claims should have been swapped to the new JWT claims")
+	}
+	if stillAPIKeyOnly {
+		t.Error("apiKeyOnly should have flipped to false after successful escalation")
+	}
+
+	select {
+	case <-ackSeen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no auth_ack frame sent to client")
+	}
+}
+
+// TestInterceptAuthRefresh_APIKeyOriginSlugCollisionRejected proves step 5b's independent
+// value (why it's kept, not deleted): the refresh JWT's slug matches the connection (step 5
+// passes) but it resolves to a DIFFERENT tenant UUID than the API key — a slug reused/
+// reassigned across tenants (#170/#171). Step 5b (resolved UUID) rejects; step 5 (slug)
+// alone would have wrongly escalated.
+func TestInterceptAuthRefresh_APIKeyOriginSlugCollisionRejected(t *testing.T) {
+	t.Parallel()
+	const (
+		connSlug   = "acme"
+		apiKeyUUID = "11111111-1111-1111-1111-111111111111"
+		otherUUID  = "22222222-2222-2222-2222-222222222222"
+	)
+	newClaims := &auth.Claims{
+		RegisteredClaims:   jwt.RegisteredClaims{Subject: "user1", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+		TenantID:           connSlug,  // slug matches the connection → step 5 PASSES
+		ResolvedTenantUUID: otherUUID, // but resolves to a different tenant → step 5b REJECTS
+	}
+	proxy, clientRemote, backendRemote := newAPIKeyOriginRefreshProxy(connSlug, apiKeyUUID, newClaims)
+	defer func() { _ = clientRemote.Close() }()
+	defer func() { _ = backendRemote.Close() }()
+	go drainConn(clientRemote)
+
+	msg := protocol.ClientMessage{Type: MsgTypeAuth, Data: json.RawMessage(`{"token":"slug-collision-jwt"}`)}
+	result, err := proxy.interceptAuthRefresh(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("interceptAuthRefresh error: %v", err)
+	}
+	if result != nil {
+		t.Error("Expected nil result (error sent to client, not forwarded)")
+	}
+
+	proxy.claimsMu.RLock()
+	stillAPIKeyOnly := proxy.apiKeyOnly
+	claimsUnchanged := proxy.claims == nil
+	proxy.claimsMu.RUnlock()
+	if !stillAPIKeyOnly {
+		t.Error("apiKeyOnly must stay true — a slug-collision upgrade must NOT escalate")
+	}
+	if !claimsUnchanged {
+		t.Error("Claims must not swap when step 5b rejects the upgrade")
+	}
 }
 
 func TestInterceptAuthRefresh_RateLimited(t *testing.T) {

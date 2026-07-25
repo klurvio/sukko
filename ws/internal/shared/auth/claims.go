@@ -63,6 +63,16 @@ func (c *Claims) Tenant() string {
 	return c.TenantID
 }
 
+// MatchesTenantUUID reports whether the token's resolved tenant (ResolvedTenantUUID —
+// the stable UUID its signing key is bound to during validation) equals tenantUUID.
+// Callers MUST compare this resolved UUID, never the TenantID slug: a slug-vs-UUID
+// comparison never matches and silently rejects legitimate requests (the recurring
+// tenant identity bug class). Used by the gateway to bind a JWT to an API key's owning
+// tenant at both connect and auth-refresh.
+func (c *Claims) MatchesTenantUUID(tenantUUID string) bool {
+	return c.ResolvedTenantUUID == tenantUUID
+}
+
 // HasRole checks if the claims contain the specified role.
 func (c *Claims) HasRole(role string) bool {
 	return slices.Contains(c.Roles, role)

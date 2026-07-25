@@ -262,8 +262,9 @@ func (gw *Gateway) authenticateRequest(ctx context.Context, r *http.Request) (*a
 		// the claim to the signing key's owning tenant UUID (claims.ResolvedTenantUUID);
 		// compare that UUID against the API key's tenant UUID (info.TenantID) — both
 		// UUIDs, so this is a like-for-like check (the old claims.TenantID slug vs
-		// info.TenantID UUID comparison never matched).
-		if claims.ResolvedTenantUUID != info.TenantID {
+		// info.TenantID UUID comparison never matched). Shared with the auth-refresh
+		// path via MatchesTenantUUID so the two can't diverge again.
+		if !claims.MatchesTenantUUID(info.TenantID) {
 			RecordAuthValidation(pkgmetrics.AuthStatusFailed, authMethodJWTAPIKeyTenantMismatch, time.Since(authStart))
 			gw.logger.Warn().
 				Str("jwt_tenant_uuid", claims.ResolvedTenantUUID).

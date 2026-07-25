@@ -668,6 +668,13 @@ func TestStartTest_AuthModeValidation(t *testing.T) {
 			body:       `{"type":"validate","auth_mode":"api-key","suite":"api-key"}`,
 			wantStatus: http.StatusCreated,
 		},
+		{
+			// upgrade + validate + empty tenant_id is now accepted: auth.Setup self-provisions a
+			// throwaway tenant (FR-008). Guard removed in lockstep with the runner.
+			name:       "auth_mode=upgrade + type=validate + suite=upgrade + empty tenant_id → 201",
+			body:       `{"type":"validate","auth_mode":"upgrade","suite":"upgrade"}`,
+			wantStatus: http.StatusCreated,
+		},
 	}
 
 	for _, tt := range tests {
@@ -743,6 +750,11 @@ func TestStartTest_InferAuthModeFromSuite(t *testing.T) {
 			want: runner.AuthModeAPIKey,
 		},
 		{
+			name: "validate + suite=upgrade → inferred upgrade",
+			body: `{"type":"validate","suite":"upgrade"}`,
+			want: runner.AuthModeUpgrade,
+		},
+		{
 			name: "validate + suite=rest-publish → jwt (not re-moded)",
 			body: `{"type":"validate","suite":"rest-publish"}`,
 			want: runner.AuthModeJWT,
@@ -750,6 +762,11 @@ func TestStartTest_InferAuthModeFromSuite(t *testing.T) {
 		{
 			name: "load + suite=api-key → jwt (inference is validate-only)",
 			body: `{"type":"load","suite":"api-key"}`,
+			want: runner.AuthModeJWT,
+		},
+		{
+			name: "load + suite=upgrade → jwt (inference is validate-only)",
+			body: `{"type":"load","suite":"upgrade"}`,
 			want: runner.AuthModeJWT,
 		},
 	}
