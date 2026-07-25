@@ -402,20 +402,26 @@ tasks:
           REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json;api-key:api key accepted;api-key:public channel subscribe;api-key:private channel denied;api-key:api key REST publish blocked;upgrade:api key initial connect;upgrade:public channel subscribe;upgrade:auth upgrade;upgrade:expired JWT rejected"
 
   cell:pro-kafka:
-    desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic)."
+    desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic; + token-revocation on the push-smoke cadence)."
     cmds:
       - task: cell
         vars:
           EDITION: pro
           BACKEND: kafka
-          SUITES: "channels pubsub ordering reconnect sse auth rest-publish tenant-isolation provisioning"
+          SUITES: "channels pubsub ordering reconnect sse auth rest-publish tenant-isolation provisioning token-revocation"
           # provisioning: `get audit log` is Enterprise-gated → skips on Pro (the only routing/prov skip here;
           # a non-routing check, so FR-011a's "no routing ALLOWED_SKIPS on Pro" holds).
-          ALLOWED_SKIPS: "provisioning:get audit log"
+          # token-revocation: the only two legitimate Pro skips — push-registration-deleted (push is
+          # Enterprise-gated) and apikey-survives-revoke (skips by design; no API key in tester config).
+          ALLOWED_SKIPS: "provisioning:get audit log;token-revocation:push-registration-deleted;token-revocation:apikey-survives-revoke"
           # Force rest-publish + tenant-isolation delivery checks AND every Pro-reachable provisioning routing
           # check present-and-pass (the base verdict catches only skip/fail/error, not a silently-absent check).
           # rename + test-access are all-editions (not gated) → required present-and-pass here too, no ALLOWED_SKIPS.
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json"
+          # token-revocation: all 16 fail-closed checks present-and-pass. `sub-force-disconnect-all` is a
+          # fail-only setup-collapse alias — NOT listed (present-and-pass on the three per-connection names
+          # covers a setup failure); `edition-gate` is deliberately un-enumerated so a Community-misbooted
+          # stack reds the cell (its skip is undeclared).
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json;token-revocation:revocation-stream-ready;token-revocation:jti-force-disconnect;token-revocation:jti-reject-reconnect;token-revocation:jti-unaffected;token-revocation:sub-force-disconnect-0;token-revocation:sub-force-disconnect-1;token-revocation:sub-force-disconnect-2;token-revocation:sub-new-token-allowed;token-revocation:sub-old-token-rejected;token-revocation:sub-iat-boundary;token-revocation:sse-force-disconnect;token-revocation:revoke-missing-fields;token-revocation:revoke-both-fields;token-revocation:revoke-tenant-mismatch;token-revocation:revoke-no-active-conn;token-revocation:revoke-idempotent"
 
   cell:enterprise-kafka:
     desc: "Grid cell — Enterprise/kafka (full green set under an Enterprise license)."
@@ -431,20 +437,26 @@ tasks:
   # Spec 2 cells — edition-axis widening (paid-direct, negative, degradation).
   # ---------------------------------------------------------------------------
   cell:pro-direct:
-    desc: "Grid cell — Pro/direct (full green set + edition-limits; restores sse-on-direct)."
+    desc: "Grid cell — Pro/direct (full green set + edition-limits; restores sse-on-direct; + token-revocation)."
     cmds:
       - task: cell
         vars:
           EDITION: pro
           BACKEND: direct
-          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation provisioning"
+          SUITES: "channels pubsub ordering reconnect sse auth edition-limits rest-publish tenant-isolation provisioning token-revocation"
           # Pro's 10000-conn limit exceeds the 100-conn test cap → the boundary sub-check skips.
           # provisioning: `get audit log` is Enterprise-gated → skips on Pro (non-routing skip).
-          ALLOWED_SKIPS: "edition-limits:connection limit rejection;provisioning:get audit log"
+          # token-revocation: the only two legitimate Pro skips — push-registration-deleted (push is
+          # Enterprise-gated) and apikey-survives-revoke (skips by design; no API key in tester config).
+          ALLOWED_SKIPS: "edition-limits:connection limit rejection;provisioning:get audit log;token-revocation:push-registration-deleted;token-revocation:apikey-survives-revoke"
           # Force rest-publish + tenant-isolation delivery checks AND every Pro-reachable provisioning routing
           # check present-and-pass. Routing gates identically off-Kafka (noop topic registry, main.go:216).
           # rename + test-access are all-editions (not gated) → required present-and-pass here too, no ALLOWED_SKIPS.
-          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json"
+          # token-revocation: all 16 fail-closed checks present-and-pass. `sub-force-disconnect-all` is a
+          # fail-only setup-collapse alias — NOT listed (present-and-pass on the three per-connection names
+          # covers a setup failure); `edition-gate` is deliberately un-enumerated so a Community-misbooted
+          # stack reds the cell (its skip is undeclared).
+          REQUIRE_PASS: "rest-publish:rest publish → ws receive;rest-publish:rest publish → sse receive;tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing delete idempotent;provisioning:routing topic gate;provisioning:routing post duplicate pattern;provisioning:routing post duplicate priority;provisioning:routing put duplicate pattern;provisioning:routing rule validation;provisioning:routing role gate read;provisioning:routing role gate write;provisioning:routing cross-tenant mismatch;provisioning:routing get pagination;provisioning:routing get limit cap;provisioning:routing put echo;provisioning:routing star normalization;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json;token-revocation:revocation-stream-ready;token-revocation:jti-force-disconnect;token-revocation:jti-reject-reconnect;token-revocation:jti-unaffected;token-revocation:sub-force-disconnect-0;token-revocation:sub-force-disconnect-1;token-revocation:sub-force-disconnect-2;token-revocation:sub-new-token-allowed;token-revocation:sub-old-token-rejected;token-revocation:sub-iat-boundary;token-revocation:sse-force-disconnect;token-revocation:revoke-missing-fields;token-revocation:revoke-both-fields;token-revocation:revoke-tenant-mismatch;token-revocation:revoke-no-active-conn;token-revocation:revoke-idempotent"
 
   cell:enterprise-direct:
     desc: "Grid cell — Enterprise/direct (full green set + edition-limits; unlimited path, no skips)."

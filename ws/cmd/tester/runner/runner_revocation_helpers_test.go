@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -72,6 +73,103 @@ func TestRevokeTokenWithClient(t *testing.T) {
 		_, err := revokeTokenWithClient(ctx, srv.Client(), srv.URL, "tok", "tenant1", revokeRequest{Sub: "user"})
 		if err == nil {
 			t.Fatal("expected error on canceled context")
+		}
+	})
+}
+
+// TestParseRetryAfter covers header parsing, defaulting, and clamping (§VIII).
+func TestParseRetryAfter(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		header string
+		want   time.Duration
+	}{
+		{"empty → default", "", defaultRevokeRetryAfter},
+		{"garbage → default", "soon", defaultRevokeRetryAfter},
+		{"zero → default", "0", defaultRevokeRetryAfter},
+		{"parses seconds", "3", 3 * time.Second},
+		{"clamps to cap", "9999", maxRevokeRetryAfter},
+		{"whitespace trimmed", " 1 ", 1 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseRetryAfter(tc.header); got != tc.want {
+				t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.header, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRevokeToken_RetriesOn429 verifies the validate-suite revoke honors Retry-After and returns the
+// eventual non-429 status (FR-009 defense-in-depth). The retry path does not fire in the green e2e run
+// (the e2e stack raises the revoke limit), so it is covered deterministically here (§VIII).
+func TestRevokeToken_RetriesOn429(t *testing.T) {
+	t.Parallel()
+
+	t.Run("429 then 200 → 200 after retry", func(t *testing.T) {
+		t.Parallel()
+		var hits atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if hits.Add(1) == 1 {
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		code, err := revokeToken(context.Background(), srv.URL, "tok", "tenant1", revokeRequest{JTI: "j"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if code != http.StatusOK {
+			t.Errorf("code = %d, want 200 (should retry past the 429)", code)
+		}
+		if got := hits.Load(); got != 2 {
+			t.Errorf("server hits = %d, want 2 (one 429 + one 200)", got)
+		}
+	})
+
+	t.Run("non-429 returns immediately without retry", func(t *testing.T) {
+		t.Parallel()
+		var hits atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits.Add(1)
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer srv.Close()
+
+		code, err := revokeToken(context.Background(), srv.URL, "tok", "tenant1", revokeRequest{JTI: "j"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if code != http.StatusForbidden {
+			t.Errorf("code = %d, want 403", code)
+		}
+		if got := hits.Load(); got != 1 {
+			t.Errorf("server hits = %d, want 1 (no retry on non-429)", got)
+		}
+	})
+
+	t.Run("ctx canceled during retry wait → returns last 429 + error", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer srv.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		code, err := revokeToken(ctx, srv.URL, "tok", "tenant1", revokeRequest{JTI: "j"})
+		if err == nil {
+			t.Fatal("expected error when context is canceled during the retry wait")
+		}
+		if code != http.StatusTooManyRequests {
+			t.Errorf("code = %d, want 429 (last observed status on ctx cancel)", code)
 		}
 	})
 }

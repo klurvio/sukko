@@ -18,6 +18,7 @@ import (
 	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/klurvio/sukko/internal/shared/license"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/routing"
 )
 
 // revocationTimeout is the maximum wait for revocation propagation (gRPC stream delivery).
@@ -407,8 +408,13 @@ func checkSSERevocation(ctx context.Context, gwURL, provURL string, minter *auth
 	}); err != nil {
 		return append(checks, metrics.CheckResult{Name: "sse-force-disconnect", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("set channel rules: %v", err)})
 	}
+	// Route to the pre-provisioned DefaultTopicSuffix ("default"): a fresh tenant only has the
+	// default + dead-letter topics, and SetRoutingRules validates every referenced topic against
+	// provisioned topics (TOPIC_NOT_PROVISIONED otherwise — the gate is on for both backends). The
+	// scenario asserts force-disconnect on revocation, not delivery, so any valid topic suffices;
+	// this mirrors validate_sse.go / validate_pubsub.go's testRoutingRules.
 	if err := provClient.SetRoutingRules(ctx, tenantID, []map[string]any{
-		{"pattern": "revoke-test", "topics": []string{"revoke-test"}, "priority": 1},
+		{"pattern": "revoke-test", "topics": []string{routing.DefaultTopicSuffix}, "priority": 1},
 	}); err != nil {
 		return append(checks, metrics.CheckResult{Name: "sse-force-disconnect", Status: metrics.CheckStatusFail, Error: fmt.Sprintf("set routing rules: %v", err)})
 	}

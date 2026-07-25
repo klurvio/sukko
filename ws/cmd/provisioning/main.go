@@ -327,7 +327,7 @@ func main() {
 	// Initialize token revocation store (background prune goroutine; Close on shutdown)
 	revStore := revocation.New(structuredLogger)
 	defer revStore.Close()
-	revHandler := api.NewRevocationHandler(revStore, bus, cfg.TokenRevocationMaxLifetime, structuredLogger)
+	revHandler := api.NewRevocationHandler(revStore, bus, cfg.TokenRevocationMaxLifetime, cfg.TokenRevocationRateLimitPerMinute, cfg.TokenRevocationRateLimitBurst, structuredLogger)
 
 	// Initialize webhook handler (Pro edition — always wired; RequireFeature gate in router).
 	webhookHandler, err := api.NewWebhookHandler(svc, structuredLogger)
