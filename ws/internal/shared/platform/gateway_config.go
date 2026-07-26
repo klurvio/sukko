@@ -46,11 +46,6 @@ type GatewayConfig struct {
 	// over gRPC (PROVISIONING_GRPC_ADDR) are the sole source — there is no
 	// static pattern configuration and no fallback rule set.
 
-	// Rate limiting per principal
-	RateLimitEnabled bool    `env:"GATEWAY_RATE_LIMIT_ENABLED" envDefault:"true"` // When true, enforces per-authenticated-principal WebSocket message rate limits using GATEWAY_RATE_LIMIT_RATE and GATEWAY_RATE_LIMIT_BURST.
-	RateLimitBurst   int     `env:"GATEWAY_RATE_LIMIT_BURST" envDefault:"100"`    // Burst allowance for per-principal WebSocket message rate limiting. Allows short spikes above the sustained rate.
-	RateLimitRate    float64 `env:"GATEWAY_RATE_LIMIT_RATE" envDefault:"10.0"`    // Sustained message rate limit per authenticated principal, in messages per second.
-
 	// Publish-specific settings
 	PublishRateLimit float64 `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Sustained rate limit for REST and WebSocket publish requests per authenticated principal, in messages per second.
 	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst allowance for the REST and WebSocket publish rate limiter. Allows short spikes above GATEWAY_PUBLISH_RATE_LIMIT before throttling kicks in.
@@ -185,16 +180,6 @@ func (c *GatewayConfig) Validate() error {
 		return err
 	}
 
-	// Rate limit validation (when enabled)
-	if c.RateLimitEnabled {
-		if c.RateLimitBurst < 1 {
-			return fmt.Errorf("GATEWAY_RATE_LIMIT_BURST must be >= 1, got %d", c.RateLimitBurst)
-		}
-		if c.RateLimitRate <= 0 {
-			return fmt.Errorf("GATEWAY_RATE_LIMIT_RATE must be > 0, got %f", c.RateLimitRate)
-		}
-	}
-
 	// Publish settings validation
 	if c.PublishBurst < 1 {
 		return fmt.Errorf("GATEWAY_PUBLISH_BURST must be >= 1, got %d", c.PublishBurst)
@@ -271,9 +256,6 @@ func (c *GatewayConfig) LogConfig(logger zerolog.Logger) {
 		Dur("idle_timeout", c.IdleTimeout).
 		Str("backend_url", c.BackendURL).
 		Dur("dial_timeout", c.DialTimeout).
-		Bool("rate_limit_enabled", c.RateLimitEnabled).
-		Int("rate_limit_burst", c.RateLimitBurst).
-		Float64("rate_limit_rate", c.RateLimitRate).
 		Int("max_frame_size", c.MaxFrameSize).
 		Dur("auth_refresh_rate_interval", c.AuthRefreshRateInterval).
 		Str("log_level", c.LogLevel).

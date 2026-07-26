@@ -33,9 +33,6 @@ func newValidGatewayConfig() *GatewayConfig {
 		MessageTimeout:               60 * time.Second,
 		RequireTenantID:              true,
 		MaxFrameSize:                 1048576,
-		RateLimitEnabled:             true,
-		RateLimitBurst:               100,
-		RateLimitRate:                10.0,
 		PublishRateLimit:             10.0,
 		PublishBurst:                 100,
 		MaxPublishSize:               65536,
@@ -389,41 +386,6 @@ func TestGatewayConfig_Validate_MessageTimeout(t *testing.T) {
 			t.Parallel()
 			cfg := newValidGatewayConfig()
 			cfg.MessageTimeout = tt.value
-			err := cfg.Validate()
-			if tt.shouldError && err == nil {
-				t.Error("Should error")
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("Should not error: %v", err)
-			}
-		})
-	}
-}
-
-func TestGatewayConfig_Validate_RateLimits(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name        string
-		enabled     bool
-		burst       int
-		rate        float64
-		shouldError bool
-	}{
-		{"enabled valid", true, 100, 10.0, false},
-		{"enabled burst zero", true, 0, 10.0, true},
-		{"enabled rate zero", true, 100, 0, true},
-		{"enabled rate negative", true, 100, -1.0, true},
-		{"disabled zero burst ok", false, 0, 0, false},
-		{"disabled zero rate ok", false, 0, 0, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := newValidGatewayConfig()
-			cfg.RateLimitEnabled = tt.enabled
-			cfg.RateLimitBurst = tt.burst
-			cfg.RateLimitRate = tt.rate
 			err := cfg.Validate()
 			if tt.shouldError && err == nil {
 				t.Error("Should error")

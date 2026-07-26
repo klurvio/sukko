@@ -106,7 +106,7 @@ spec:
 
             # Extra env overrides from values
             # Rate limiting and tenant connection limits use Go envDefault values.
-            # Override via extraEnv when needed (e.g., extraEnv: { GATEWAY_RATE_LIMIT_BURST: "200" }).
+            # Override via extraEnv when needed (e.g., extraEnv: { GATEWAY_PUBLISH_BURST: "200" }).
             {{- range $key, $val := .Values.extraEnv }}
             - name: {{ $key }}
               value: {{ $val | quote }}
