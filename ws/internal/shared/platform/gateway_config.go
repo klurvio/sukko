@@ -52,8 +52,8 @@ type GatewayConfig struct {
 	RateLimitRate    float64 `env:"GATEWAY_RATE_LIMIT_RATE" envDefault:"10.0"`    // Sustained message rate limit per authenticated principal, in messages per second.
 
 	// Publish-specific settings
-	PublishRateLimit float64 `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Sustained rate limit for REST publish requests per authenticated principal, in messages per second.
-	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst allowance for the REST publish rate limiter. Allows short spikes above GATEWAY_PUBLISH_RATE_LIMIT before throttling kicks in.
+	PublishRateLimit float64 `env:"GATEWAY_PUBLISH_RATE_LIMIT" envDefault:"10.0"` // Sustained rate limit for REST and WebSocket publish requests per authenticated principal, in messages per second.
+	PublishBurst     int     `env:"GATEWAY_PUBLISH_BURST" envDefault:"100"`       // Burst allowance for the REST and WebSocket publish rate limiter. Allows short spikes above GATEWAY_PUBLISH_RATE_LIMIT before throttling kicks in.
 	MaxPublishSize   int     `env:"GATEWAY_MAX_PUBLISH_SIZE" envDefault:"65536"`  // Maximum REST publish payload size in bytes. Payloads exceeding this are rejected. Default: 64KB.
 
 	// Auth refresh settings

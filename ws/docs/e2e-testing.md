@@ -295,9 +295,8 @@ the end. The generic guard is `e2e_battery_verdict` and the negative-cell guard 
 `taskfiles/e2e/battery_guard_test.sh`).
 
 **Not yet in the grid (tracked for triage):**
-`ratelimit` —
-surfaced a real first-contact finding when first run against a live gateway (see the
-validate-battery backlog issue). (`token-revocation` is now gated into the Pro cells — §2.13.) `kafka-ingest` runs in its own kafka-mode job and `push` in
+(`ratelimit` is now gated into `community-direct` — §2.8; `token-revocation` into the Pro cells — §2.13.)
+`kafka-ingest` runs in its own kafka-mode job and `push` in
 the `e2e-push-validate` job (Enterprise + `MESSAGE_BACKEND=kafka`, §1.3); `webhooks` is
 deferred (webhook-worker boot bugs);
 `license-reload` stays in the manual `task e2e:license` family (mutates edition mid-run);
@@ -313,7 +312,7 @@ load/soak/stress are scale tests.
 | 4 | `pubsub` | Community | no | Pub-sub delivery with scoping |
 | 5 | `ordering` | Community | no | Message FIFO ordering |
 | 6 | `reconnect` | Community | no | Disconnect/reconnect recovery |
-| 7 | `ratelimit` | Community | no | Rate limit enforcement |
+| 7 | `ratelimit` | Community | no | Per-connection WS publish rate-limit enforcement. Gated into `community-direct` (§2.8) |
 | 8 | `sse` | Community | no | SSE transport validation |
 | 9 | `rest-publish` | Pro | no | REST publish delivery (`/api/v1/publish` is Pro-gated) |
 | 10 | `provisioning` | Community | **yes** | Provisioning API CRUD + e2e-unique routing-rules coverage (topic gate, role/tenant isolation, error-code mapping, pagination, normalization) + rename & test-access coverage (all-editions). Gated into `community-direct`/`pro-kafka`/`pro-direct` (§2.11) |
@@ -435,8 +434,21 @@ restoration, and message delivery continuity.
 sukko test validate --suite ratelimit
 ```
 
-Validates rate limit enforcement: floods the gateway and asserts HTTP 429 responses
-are returned once the per-IP limit is reached.
+Validates the gateway's **per-connection WebSocket publish** rate limiter (seeded from
+`GATEWAY_PUBLISH_RATE_LIMIT` / `GATEWAY_PUBLISH_BURST`). The suite bursts publishes past the
+burst allowance on a single WS connection and reads the connection's inbound frames, asserting
+the gateway rejects over-limit publishes with an in-band `publish_error` frame carrying
+`code: "rate_limited"` — on the **still-open** connection (no HTTP 429, no connection close,
+no client write error; that is the distinct REST/per-IP path this suite does not exercise).
+
+Three fail-closed checks, no skip path:
+
+- `rate limit enforcement` — ≥1 inbound `publish_error`/`rate_limited` frame observed after the burst.
+- `connection survives rate limit` — the connection stays open and no client write errors occur (enforcement is in-band, not fatal).
+- `publish recovers after refill` — after the token bucket refills, a probe publish is accepted and delivered back (self-delivery round-trip), proving the limiter discriminates over-limit traffic rather than blanket-rejecting.
+
+Gated into the `community-direct` grid cell with all three checks in `REQUIRE_PASS` and no
+`ALLOWED_SKIPS` entry — a disabled/defeated limiter or a missing check reds the cell.
 
 **Minimum edition**: Community  
 **Admin key**: not required

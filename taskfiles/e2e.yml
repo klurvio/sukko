@@ -379,7 +379,7 @@ tasks:
   # CI drives these by name (smoke-on-push / full-grid-on-schedule); later specs add rows.
   # ---------------------------------------------------------------------------
   cell:community-direct:
-    desc: "Grid cell — Community/direct (green set minus Pro-gated sse, + edition-limits, + api-key, + upgrade)."
+    desc: "Grid cell — Community/direct (green set minus Pro-gated sse, + edition-limits, + api-key, + upgrade, + ratelimit)."
     cmds:
       - task: cell
         vars:
@@ -388,7 +388,7 @@ tasks:
           # api-key + upgrade: edition-independent, backend-agnostic auth suites — cheapest cell.
           # Both self-provision what they need (api-key: throwaway tenant + key; upgrade: also the
           # JWT keypair via auth.Setup), so no TESTER_API_KEY / TESTER_AUTH_MODE is required.
-          SUITES: "channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning api-key upgrade"
+          SUITES: "channels pubsub ordering reconnect auth edition-limits tenant-isolation provisioning api-key upgrade ratelimit"
           # edition-limits: the connection-boundary sub-check honestly skips (Community's 500-conn limit
           # exceeds the 100-conn test cap). provisioning: on Community the routing-rules API is feature-gated
           # (Pro) and quota/lifecycle/audit are Pro/Enterprise-gated, so those checks emit explicit skips —
@@ -399,7 +399,9 @@ tasks:
           # provisioning: routing cross-tenant mismatch (TENANT_MISMATCH fires pre-edition-gate → runs all
           # editions) and routing edition gate (the Community-only feature-gate assertion) must be present-and-pass.
           # api-key + upgrade: all their checks fail-closed (no legitimate skip — FR-006), so require each present-and-pass.
-          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json;api-key:api key accepted;api-key:public channel subscribe;api-key:private channel denied;api-key:api key REST publish blocked;upgrade:api key initial connect;upgrade:public channel subscribe;upgrade:auth upgrade;upgrade:expired JWT rejected"
+          # ratelimit: the per-connection WS publish limiter is edition/backend-independent gateway code; all three
+          # checks are fail-closed (no skip path — the suite fails hard if enforcement is absent), so require each.
+          REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json;api-key:api key accepted;api-key:public channel subscribe;api-key:private channel denied;api-key:api key REST publish blocked;upgrade:api key initial connect;upgrade:public channel subscribe;upgrade:auth upgrade;upgrade:expired JWT rejected;ratelimit:rate limit enforcement;ratelimit:connection survives rate limit;ratelimit:publish recovers after refill"
 
   cell:pro-kafka:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic; + token-revocation on the push-smoke cadence)."
