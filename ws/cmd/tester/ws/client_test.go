@@ -223,6 +223,58 @@ func TestClient_Publish(t *testing.T) {
 	}
 }
 
+func TestMessage_DecodeCode(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		raw      string
+		wantType string
+		wantCode string
+	}{
+		{
+			name:     "publish_error with rate_limited code",
+			raw:      `{"type":"publish_error","code":"rate_limited","message":"too many"}`,
+			wantType: "publish_error",
+			wantCode: "rate_limited",
+		},
+		{
+			name:     "publish_error with other code",
+			raw:      `{"type":"publish_error","code":"invalid_channel"}`,
+			wantType: "publish_error",
+			wantCode: "invalid_channel",
+		},
+		{
+			name:     "delivery envelope has no code",
+			raw:      `{"type":"message","channel":"t.general.test","data":{"msg_id":"m1"}}`,
+			wantType: "message",
+			wantCode: "",
+		},
+		{
+			name:     "absent code field decodes to empty string",
+			raw:      `{"type":"subscribe_ack"}`,
+			wantType: "subscribe_ack",
+			wantCode: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var msg Message
+			if err := json.Unmarshal([]byte(tc.raw), &msg); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if msg.Type != tc.wantType {
+				t.Errorf("Type = %q, want %q", msg.Type, tc.wantType)
+			}
+			if msg.Code != tc.wantCode {
+				t.Errorf("Code = %q, want %q", msg.Code, tc.wantCode)
+			}
+		})
+	}
+}
+
 func TestClient_ReadLoop_OnMessage(t *testing.T) {
 	t.Parallel()
 

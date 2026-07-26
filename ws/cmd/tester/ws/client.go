@@ -34,6 +34,7 @@ type Client struct {
 type Message struct {
 	Type    string          `json:"type"`
 	Channel string          `json:"channel,omitempty"`
+	Code    string          `json:"code,omitempty"` // top-level error code on error frames (e.g. publish_error → "rate_limited"); "" on non-error frames
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
