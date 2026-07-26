@@ -129,7 +129,12 @@ type TestRun struct {
 	jwtRefreshBefore time.Duration     `json:"-"`
 	// Auth mode fields set by execute() before dispatching to test functions.
 	apiKey             string        `json:"-"` // effective API key for this run
-	authUpgradeTimeout time.Duration `json:"-"` // timeout for auth_ack in upgrade flow
+	authUpgradeTimeout time.Duration `json:"-"` // timeout for auth_ack in upgrade flow (upgrade suite only)
+	// api-key suite private-channel deny-wait bounds, seeded unconditionally by execute()
+	// from the apiKeyDeny* consts (no env var — internal robustness bounds); tests inject
+	// small values. Authoritative: consumers have no <= 0 fallback.
+	apiKeyDenyDeadline      time.Duration `json:"-"` // overall deadline for the deny wait
+	apiKeyDenyRetryInterval time.Duration `json:"-"` // re-subscribe interval within the deny wait
 	// Webhook suite fields set by execute().
 	webhookBaseURL         string        `json:"-"`
 	webhookDeliveryTimeout time.Duration `json:"-"`
@@ -480,6 +485,10 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.jwtLifetime = r.cfg.JWTLifetime
 	run.jwtRefreshBefore = r.cfg.JWTRefreshBefore
 	run.authUpgradeTimeout = r.cfg.AuthUpgradeTimeout
+	// api-key deny-wait bounds: unconditional, from the consts — NOT from r.cfg (no env var;
+	// the fields are authoritative so the suite needs no fallback).
+	run.apiKeyDenyDeadline = apiKeyDenyDeadline
+	run.apiKeyDenyRetryInterval = apiKeyDenyRetryInterval
 	run.webhookBaseURL = r.cfg.WebhookBaseURL
 	run.webhookDeliveryTimeout = r.cfg.WebhookDeliveryTimeout
 	run.webhookRetryTimeout = r.cfg.WebhookRetryTimeout

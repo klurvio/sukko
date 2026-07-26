@@ -3,10 +3,12 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,10 +16,14 @@ import (
 	"github.com/gobwas/ws/wsutil"
 	"github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/metrics"
+	testerws "github.com/klurvio/sukko/cmd/tester/ws"
 	"github.com/rs/zerolog"
 )
 
 // newValidateAPIKeyRun constructs a minimal TestRun for validateAPIKey unit tests.
+// It bypasses execute(), so BOTH deny-wait fields must be set here (production seeds them
+// unconditionally from the apiKeyDeny* consts). 3s/1s keeps the 3-attempt production shape
+// while staying fast; individual tests overwrite with smaller values as needed.
 func newValidateAPIKeyRun(gatewayURL, apiKey string) *TestRun {
 	return &TestRun{
 		ID: "test-val-apikey",
@@ -28,11 +34,23 @@ func newValidateAPIKeyRun(gatewayURL, apiKey string) *TestRun {
 			TenantID:   "test-tenant",
 			AuthMode:   AuthModeAPIKey,
 		},
-		Status:             StatusRunning,
-		Collector:          metrics.NewCollector(),
-		apiKey:             apiKey,
-		authUpgradeTimeout: 3 * time.Second, // short timeout for tests; drives Check 3 deny-wait
+		Status:                  StatusRunning,
+		Collector:               metrics.NewCollector(),
+		apiKey:                  apiKey,
+		apiKeyDenyDeadline:      3 * time.Second, // short deadline for tests; drives Check 3 deny-wait
+		apiKeyDenyRetryInterval: 1 * time.Second,
 	}
+}
+
+// wsRestServerOpts parameterizes the mock's private-channel deny behavior for the #216
+// retry-path tests. The zero value preserves the original deny-on-first-subscribe behavior,
+// so existing call sites are unaffected (a blanket global withhold would break/slow the
+// deny-on-first tests — forbidden by the spec).
+type wsRestServerOpts struct {
+	withholdDenies    int           // N: per-connection; withhold the deny for the first N private subscribes, deny on attempt N+1. 0 = deny immediately.
+	privateSubscribed chan struct{} // non-nil: non-blocking signal per private subscribe received (deterministic test synchronization)
+	subscribeCount    *atomic.Int64 // non-nil: incremented per private subscribe received
+	closeAfterDeny    bool          // close the conn immediately after writing the deny frame (drives the transport-error-after-deny path)
 }
 
 // newWsRestServer returns an httptest.Server that:
@@ -51,8 +69,12 @@ func newValidateAPIKeyRun(gatewayURL, apiKey string) *TestRun {
 // scheme before even connecting. This is a known limitation in
 // validate_api_key.go (should use httpURL() for the REST call).
 // Tests that exercise the REST path must use an "http://" GatewayURL.
-func newWsRestServer(t *testing.T, restPublishStatus int) *httptest.Server {
+func newWsRestServer(t *testing.T, restPublishStatus int, opts ...wsRestServerOpts) *httptest.Server {
 	t.Helper()
+	var o wsRestServerOpts
+	if len(opts) > 0 {
+		o = opts[0]
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/ws" {
 			upgrader := ws.HTTPUpgrader{}
@@ -61,6 +83,7 @@ func newWsRestServer(t *testing.T, restPublishStatus int) *httptest.Server {
 				return
 			}
 			defer conn.Close()
+			privateSubs := 0 // per-connection withhold counter (NFR-001: per-connection state)
 			for {
 				msg, err := wsutil.ReadClientText(conn)
 				if err != nil {
@@ -78,13 +101,31 @@ func newWsRestServer(t *testing.T, restPublishStatus int) *httptest.Server {
 				}
 				if frame.Type == "subscribe" {
 					for _, ch := range frame.Data.Channels {
-						if strings.Contains(ch, "private") {
-							errMsg, _ := json.Marshal(map[string]any{
-								"type":    "error",
-								"channel": ch,
-								"data":    map[string]any{"code": "UNAUTHORIZED"},
-							})
-							_ = wsutil.WriteServerText(conn, errMsg)
+						if !strings.Contains(ch, "private") {
+							continue
+						}
+						privateSubs++
+						if o.subscribeCount != nil {
+							o.subscribeCount.Add(1)
+						}
+						if o.privateSubscribed != nil {
+							select {
+							case o.privateSubscribed <- struct{}{}:
+							default:
+							}
+						}
+						if privateSubs <= o.withholdDenies {
+							continue // withhold: simulate the slow/lost deny that caused #216
+						}
+						errMsg, _ := json.Marshal(map[string]any{
+							"type":    "error",
+							"channel": ch,
+							"data":    map[string]any{"code": "UNAUTHORIZED"},
+						})
+						_ = wsutil.WriteServerText(conn, errMsg)
+						if o.closeAfterDeny {
+							_ = conn.Close()
+							return
 						}
 					}
 				}
@@ -325,5 +366,247 @@ func TestValidateAPIKey_SeedsNarrowPublicRule(t *testing.T) {
 	pub, _ := gotRules["public"].([]any)
 	if len(pub) != 1 || pub[0] != validatePublicChannel {
 		t.Errorf("seeded public rule = %v, want [%q]", gotRules["public"], validatePublicChannel)
+	}
+}
+
+// findCheck returns the first check with the given name, or nil.
+func findCheck(checks []metrics.CheckResult, name string) *metrics.CheckResult {
+	for i := range checks {
+		if checks[i].Name == name {
+			return &checks[i]
+		}
+	}
+	return nil
+}
+
+// TestValidateAPIKey_DenyOnRetry drives the #216 flake path deterministically: the mock
+// withholds the first deny (simulating a slow/lost deny round-trip), so only a re-subscribe
+// retry elicits it. Asserts the check passes AND the retry actually fired (≥2 private
+// subscribes observed) — without the count assertion the test would pass vacuously against
+// the old one-shot code whenever timing got lucky.
+func TestValidateAPIKey_DenyOnRetry(t *testing.T) {
+	t.Parallel()
+
+	var count atomic.Int64
+	srv := newWsRestServer(t, http.StatusForbidden, wsRestServerOpts{
+		withholdDenies: 1,
+		subscribeCount: &count,
+	})
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	run := newValidateAPIKeyRun(wsURL, "pk_live_test123")
+	run.apiKeyDenyRetryInterval = 50 * time.Millisecond
+	run.apiKeyDenyDeadline = 2 * time.Second
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	checks, err := validateAPIKey(ctx, run, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("validateAPIKey: %v", err)
+	}
+
+	c := findCheck(checks, "private channel denied")
+	if c == nil {
+		t.Fatalf("check %q not found (got %d checks)", "private channel denied", len(checks))
+	}
+	if c.Status != metrics.CheckStatusPass {
+		t.Errorf("private channel denied: status = %q, want pass; error: %s", c.Status, c.Error)
+	}
+	if got := count.Load(); got < 2 {
+		t.Errorf("private subscribes observed = %d, want >= 2 (retry must actually fire)", got)
+	}
+}
+
+// TestValidateAPIKey_NeverDenied_HardFail proves the retry did not introduce a vacuous pass:
+// a platform that never denies produces a hard FAIL with the timeout message. Also asserts
+// the FR-007 windowed-send bound: the loop stops sending one interval before the deadline,
+// so the observed subscribe count stays strictly below deadline/interval.
+func TestValidateAPIKey_NeverDenied_HardFail(t *testing.T) {
+	t.Parallel()
+
+	const (
+		interval = 200 * time.Millisecond
+		deadline = 500 * time.Millisecond
+	)
+	var count atomic.Int64
+	srv := newWsRestServer(t, http.StatusForbidden, wsRestServerOpts{
+		withholdDenies: 1 << 30, // never deny
+		subscribeCount: &count,
+	})
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	run := newValidateAPIKeyRun(wsURL, "pk_live_test123")
+	run.apiKeyDenyRetryInterval = interval
+	run.apiKeyDenyDeadline = deadline
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	checks, err := validateAPIKey(ctx, run, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("validateAPIKey: %v", err)
+	}
+
+	c := findCheck(checks, "private channel denied")
+	if c == nil {
+		t.Fatalf("check %q not found (got %d checks)", "private channel denied", len(checks))
+	}
+	if c.Status != metrics.CheckStatusFail {
+		t.Errorf("private channel denied: status = %q, want fail (never-denied must red the check)", c.Status)
+	}
+	if !strings.Contains(c.Error, "timed out waiting for gateway to deny") {
+		t.Errorf("error = %q, want the timeout message", c.Error)
+	}
+	// Windowed-send bound: strictly fewer sends than deadline/interval proves the
+	// final-interval send was suppressed (no send at deadline−ε). MUST be float division —
+	// integer Duration division (500ms/200ms == 2) would collapse the bound to 2 < 2.
+	bound := float64(deadline) / float64(interval) // 2.5
+	if got := float64(count.Load()); got >= bound {
+		t.Errorf("private subscribes = %v, want < %v (loop must stop sending one interval before the deadline)", got, bound)
+	}
+}
+
+// TestValidateAPIKey_ParentCancelDuringWait verifies FR-004: parent-context cancellation
+// mid-wait short-circuits cleanly with NO "private channel denied" result recorded. The
+// cancel is synchronized on the mock's subscribe-received signal — never a wall-clock sleep
+// (a sleep-race would reintroduce the timing flakiness this fix removes).
+func TestValidateAPIKey_ParentCancelDuringWait(t *testing.T) {
+	t.Parallel()
+
+	subscribed := make(chan struct{}, 1)
+	srv := newWsRestServer(t, http.StatusForbidden, wsRestServerOpts{
+		withholdDenies:    1 << 30, // never deny — the wait only ends via the cancel
+		privateSubscribed: subscribed,
+	})
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	run := newValidateAPIKeyRun(wsURL, "pk_live_test123")
+	run.apiKeyDenyRetryInterval = 50 * time.Millisecond
+	run.apiKeyDenyDeadline = 5 * time.Second
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		// Cancel only after the mock has observed the first private subscribe — the wait
+		// loop is then provably past its send and blocked in the select.
+		select {
+		case <-subscribed:
+			cancel()
+		case <-time.After(5 * time.Second):
+			// Safety valve so a broken suite cannot hang the test; the deadline assert below fails it.
+			cancel()
+		}
+	}()
+
+	checks, err := validateAPIKey(ctx, run, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("validateAPIKey: %v", err)
+	}
+	if c := findCheck(checks, "private channel denied"); c != nil {
+		t.Errorf("parent-cancel must record NO private-channel result, got status %q (error %q)", c.Status, c.Error)
+	}
+}
+
+// TestValidateAPIKey_DenyWinsOverTransportError is the end-to-end FR-005a integration case:
+// the mock withholds the first deny, then answers the retry with a deny AND immediately
+// closes the connection. Whichever branch the race takes (deny consumed in the select, or a
+// later write error probing the buffered deny), a correct implementation passes. (The
+// deterministic branch-level assertion is TestWaitForPrivateDeny_DenyWinsProbe_Deterministic —
+// research R-4: this end-to-end shape cannot force the transport-error branch reliably.)
+func TestValidateAPIKey_DenyWinsOverTransportError(t *testing.T) {
+	t.Parallel()
+
+	srv := newWsRestServer(t, http.StatusForbidden, wsRestServerOpts{
+		withholdDenies: 1,
+		closeAfterDeny: true,
+	})
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	run := newValidateAPIKeyRun(wsURL, "pk_live_test123")
+	run.apiKeyDenyRetryInterval = 50 * time.Millisecond
+	run.apiKeyDenyDeadline = 2 * time.Second
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	checks, err := validateAPIKey(ctx, run, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("validateAPIKey: %v", err)
+	}
+
+	c := findCheck(checks, "private channel denied")
+	if c == nil {
+		t.Fatalf("check %q not found (got %d checks)", "private channel denied", len(checks))
+	}
+	if c.Status != metrics.CheckStatusPass {
+		t.Errorf("private channel denied: status = %q, want pass (deny must win); error: %s", c.Status, c.Error)
+	}
+}
+
+// TestWaitForPrivateDeny_DenyWinsProbe_Deterministic pins the exact FR-005a/FR-008 probe:
+// a subscribe transport error with a deny already buffered MUST resolve denied (pass), via
+// exactly one non-blocking errCh read. Driven at the helper level because the end-to-end
+// mock cannot deterministically reach "transport error with pending deny" (research R-4).
+func TestWaitForPrivateDeny_DenyWinsProbe_Deterministic(t *testing.T) {
+	t.Parallel()
+
+	errCh := make(chan testerws.Message, 1)
+	errCh <- testerws.Message{Type: "error"} // buffered deny, already captured
+
+	subscribe := func() error { return errors.New("write ws message: connection reset") }
+
+	outcome, err := waitForPrivateDeny(context.Background(), subscribe, errCh,
+		time.Second, 100*time.Millisecond, zerolog.Nop())
+	if outcome != denyOutcomeDenied {
+		t.Errorf("outcome = %d, want denyOutcomeDenied (buffered deny wins over transport error)", outcome)
+	}
+	if err != nil {
+		t.Errorf("err = %v, want nil on deny-wins", err)
+	}
+}
+
+// TestWaitForPrivateDeny_DenyWinsAtDeadline pins the deadline-boundary deny-wins guard: a deny
+// buffered on errCh when the deadline fires MUST resolve denied, never timedOut — otherwise
+// select's pseudo-random tie-break would reintroduce a narrow #216. A tiny deadline makes
+// denyCtx.Done() and the buffered errCh both ready in the loop select; run under -count to
+// exercise the tie-break both ways (the fix makes both branches resolve denied).
+func TestWaitForPrivateDeny_DenyWinsAtDeadline(t *testing.T) {
+	t.Parallel()
+
+	errCh := make(chan testerws.Message, 1)
+	errCh <- testerws.Message{Type: "error"} // deny buffered before the deadline fires
+
+	subscribe := func() error { return nil } // succeeds → enter the select loop
+
+	// deadline ~immediate so denyCtx.Done() is ready alongside the buffered deny; interval huge
+	// so no retry intervenes.
+	outcome, err := waitForPrivateDeny(context.Background(), subscribe, errCh,
+		time.Millisecond, time.Hour, zerolog.Nop())
+	if outcome != denyOutcomeDenied {
+		t.Errorf("outcome = %d, want denyOutcomeDenied (deny buffered at the deadline must win, not time out)", outcome)
+	}
+	if err != nil {
+		t.Errorf("err = %v, want nil", err)
+	}
+}
+
+// TestWaitForPrivateDeny_TransportError_ParentCancelled pins FR-004's transport-path guard:
+// a subscribe transport error with NO pending deny and a canceled parent ctx MUST resolve
+// canceled (clean short-circuit), never transportFailed. Not reachable deterministically
+// end-to-end, hence helper-level.
+func TestWaitForPrivateDeny_TransportError_ParentCancelled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // parent already canceled
+
+	errCh := make(chan testerws.Message, 1) // empty — no deny pending
+	subscribe := func() error { return errors.New("write ws message: use of closed connection") }
+
+	outcome, err := waitForPrivateDeny(ctx, subscribe, errCh,
+		time.Second, 100*time.Millisecond, zerolog.Nop())
+	if outcome != denyOutcomeCancelled {
+		t.Errorf("outcome = %d, want denyOutcomeCancelled (canceled parent must not record a failure)", outcome)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled (informational ctx error on the canceled outcome)", err)
 	}
 }
