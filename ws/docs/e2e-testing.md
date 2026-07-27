@@ -309,19 +309,19 @@ load/soak/stress are scale tests.
 | 1 | `smoke` | Community | no | Basic connectivity gate |
 | 2 | `auth` | Community | no | JWT auth validation |
 | 3 | `channels` | Community | no | Channel subscribe/unsubscribe |
-| 4 | `pubsub` | Community | no | Pub-sub delivery with scoping |
+| 4 | `pubsub` | Community | no | Pub-sub delivery with scoping (allow) + subscribe/publish deny checks (§2.5) |
 | 5 | `ordering` | Community | no | Message FIFO ordering |
 | 6 | `reconnect` | Community | no | Disconnect/reconnect recovery |
 | 7 | `ratelimit` | Community | no | Per-connection WS publish rate-limit enforcement. Gated into `community-direct` (§2.8) |
 | 8 | `sse` | Community | no | SSE transport validation |
 | 9 | `rest-publish` | Pro | no | REST publish delivery (`/api/v1/publish` is Pro-gated) |
 | 10 | `provisioning` | Community | **yes** | Provisioning API CRUD + e2e-unique routing-rules coverage (topic gate, role/tenant isolation, error-code mapping, pagination, normalization) + rename & test-access coverage (all-editions). Gated into `community-direct`/`pro-kafka`/`pro-direct` (§2.11) |
-| 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation |
+| 11 | `tenant-isolation` | Community | **yes** | Cross-tenant isolation (delivery isolation + active cross-tenant subscribe rejection, §2.12) |
 | 12 | `token-revocation` | **Pro** | **yes** | Token revocation force-disconnect (jti/sub WS + SSE), revoke-endpoint validation, cross-tenant rejection. Gated into `pro-kafka`/`pro-direct` (§2.13) |
 | 13 | `edition-limits` | Community | no | Edition boundary limits |
 | 14 | `push` | Enterprise | no | Push notification pipeline, including **actual Web Push delivery**: registers a device against the tester's mock receiver (`TESTER_PUSH_RECEIVER_HOST`) with real P-256 client keys and asserts the encrypted notification arrives (RFC 8030). Delivery check skips when the receiver host is unset (managed deployments). **Real delivery is Web Push (VAPID) only** — the FCM (Android) / APNs (iOS) legs register with fake provider tokens and assert subscription acceptance, not delivery (real mobile delivery tracked as #175). |
 | 15 | `license-reload` | Community | no | License hot-reload propagation |
-| 16 | `api-key` | Community | **yes** | API key auth in isolation (no JWT provisioning); self-provisions tenant + key. Gated into `community-direct` (§2.17) |
+| 16 | `api-key` | Community | **yes** | API key auth in isolation (no JWT provisioning); seven checks incl. group/user subscribe + WS publish deny; self-provisions tenant + key. Gated into `community-direct` (§2.17) |
 | 17 | `upgrade` | Community | **yes** | Auth upgrade flow (API key → JWT); self-provisions tenant + keypair + key. Gated into `community-direct` (§2.18) |
 | 18 | `webhooks` | Pro | no | Webhook delivery: happy-path, retry-success, degraded transition |
 | 19 | `kafka-ingest` | Community | no | Direct-to-Kafka ingestion: publishes straight to the broker (SASL/TLS) and verifies a gateway-subscribed client receives it. Skips when `KAFKA_BROKERS` unset; delivery requires the server under test to run `MESSAGE_BACKEND=kafka` (Pro-gated). Run continuously by `task e2e:kafka-ingest` / the CI workflow's `e2e-kafka-ingest` job (see §1.3). |
@@ -400,6 +400,28 @@ sukko test validate --suite pubsub
 Validates publish-subscribe delivery with channel scoping: public channels, user
 channels (`user.<sub>`), and group channels. Confirms cross-tenant isolation at the
 delivery layer.
+
+**Positive (delivery) half** — four checks assert the *allow* path: public round-trip,
+user-scoped isolation, group-scoped vip, group-scoped traders.
+
+**Deny half** — three fail-closed checks assert the *deny* path against the platform's real
+wire signal (not mere non-delivery). Each isolates the single unauthorized channel so the deny
+frame is unambiguous, and uses the bounded re-send `waitForDeny` helper (a slow or lost deny
+round-trip under load re-issues rather than flaking):
+
+- `group subscribe denied` — a groupless user subscribing to a group channel (`room.vip`) is
+  rejected with `subscribe_error` / `invalid_request` (the gateway filters the unauthorized
+  channel to empty → server `subscribe_error`).
+- `user subscribe denied` — a user subscribing to another user's `dm.<sub>` channel is rejected
+  with `subscribe_error` / `invalid_request`.
+- `publish auth rejection` (strengthened) — a user publishing to a group channel it may not
+  publish to is rejected with `publish_error` / `forbidden`. The sole pass path is the observed
+  deny frame; the previous transport-error-pass and "silently dropped" pass branches are gone.
+
+All three deny checks are net-new to `REQUIRE_PASS` in **all five positive grid cells**
+(`community-direct`, `pro-kafka`, `enterprise-kafka`, `pro-direct`, `enterprise-direct`) with no
+`ALLOWED_SKIPS` entry — deny is gateway-authz, backend-independent, so it runs identically on
+direct and kafka cells.
 
 **Minimum edition**: Community  
 **Admin key**: not required
@@ -581,9 +603,16 @@ phase is the sole authoritative leak detector. Routing-rules setup is edition-ga
 rules are Pro-gated and moot on the direct backend, so the Community 403 is skipped), so the suite
 runs on all editions. Requires admin keypair.
 
+Beyond the two delivery-layer checks, a third check asserts **active** cross-tenant rejection:
+`cross-tenant subscribe denied` — tenant A's user subscribing to tenant B's channel is rejected
+by the gateway with `subscribe_error` / `invalid_request` (via the bounded `waitForDeny` helper),
+proving the boundary is enforced at subscribe time, not merely that a stray broadcast fails to
+arrive.
+
 **Minimum edition**: Community  
 **Admin key**: required  
-**Grid cells**: `pro-kafka`, `pro-direct`, `community-direct` (both directional checks `REQUIRE_PASS`)
+**Grid cells**: `pro-kafka`, `pro-direct`, `community-direct` (all three checks — both directional
+delivery checks plus `cross-tenant subscribe denied` — `REQUIRE_PASS`, no allowed skips)
 
 ### 2.13 token-revocation
 
@@ -757,9 +786,14 @@ sukko test validate --suite api-key
 ```
 
 Validates static API key auth in isolation — no JWT provisioning; distinct from the
-`auth` suite which validates both auth methods within a single run. Four checks: API key
-accepted, public channel subscribe allowed, private channel subscribe **denied**, and REST
-publish **blocked** (403).
+`auth` suite which validates both auth methods within a single run. Seven checks: API key
+accepted, public channel subscribe allowed, private channel subscribe **denied**, REST
+publish **blocked** (403), and three additional scoping deny checks — `group channel denied`
+(a group channel subscribe is rejected with `subscribe_error` / `invalid_request`),
+`user channel denied` (a `dm.<sub>` subscribe is rejected the same way), and `ws publish denied`
+(a WebSocket publish is rejected with `publish_error` / `forbidden`, since API keys cannot
+publish over WS). Each deny check isolates its single unauthorized channel and uses the bounded
+`waitForDeny` helper against the real wire deny frame.
 
 **Self-provisioning (no manual setup).** `--suite api-key` alone is sufficient: the tester
 infers `auth_mode=api-key` from the suite, and when no key/tenant is supplied it
@@ -772,7 +806,7 @@ also seeds narrow channel rules for its tenant so that, as a nil-claims API-key 
 private channel is genuinely unauthorized.
 
 **CI placement**: gated into the `community-direct` cell (API-key auth is edition-independent
-and backend-agnostic — the cheapest cell). All four checks are `REQUIRE_PASS`; there are no
+and backend-agnostic — the cheapest cell). All seven checks are `REQUIRE_PASS`; there are no
 allowed skips.
 
 **Minimum edition**: Community  

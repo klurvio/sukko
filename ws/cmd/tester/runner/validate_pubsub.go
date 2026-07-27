@@ -166,26 +166,52 @@ func validatePubSub(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 	checks = append(checks, deliveryCheck("group-scoped traders", result))
 	clearAll(users)
 
-	// Check 5: Publish authorization — userC publishes to room.vip, should be rejected
-	err := userC.Client.Publish(vipChannel, []byte(`{"msg_id":"auth-test","ts":0}`))
-	if err != nil {
-		checks = append(checks, metrics.CheckResult{Name: "publish auth rejection", Status: "pass", Latency: "rejected"})
-	} else {
-		// Publish didn't error — check if any user received it (shouldn't)
-		time.Sleep(1 * time.Second)
-		anyReceived := false
-		for _, u := range users {
-			if u.HasReceived("auth-test") {
-				anyReceived = true
-				break
-			}
-		}
-		if anyReceived {
-			checks = append(checks, metrics.CheckResult{Name: "publish auth rejection", Status: "fail", Error: "unauthorized publish was delivered"})
-		} else {
-			checks = append(checks, metrics.CheckResult{Name: "publish auth rejection", Status: "pass", Latency: "silently dropped"})
-		}
+	// Deny half (FR-002/FR-003, R-9 order): subscribe-deny checks first, then the strengthened
+	// publish-deny check LAST. Each isolates the single unauthorized channel and asserts the
+	// platform's real wire deny signal via the bounded waitForDeny helper. ClearErrors drains the
+	// user's captured-error store exactly once before each wait (drain-once, FR-011); waitForDeny
+	// owns the re-issue + deny-wins probe and never re-clears. No positive delivery check may follow
+	// these without an intervening clearAll (FR-007) — the deny checks are the last in this suite.
+
+	// Check 5: Group subscribe denied — userC (no groups) subscribes to room.vip → subscribe_error.
+	// The gateway filters the unauthorized channel to empty; the server replies subscribe_error
+	// (invalid_request). Isolate the single unauthorized channel so the deny frame is unambiguous.
+	userC.ClearErrors()
+	outcome, denyErr := waitForDeny(ctx,
+		func() error { return userC.Client.Subscribe([]string{vipChannel}) },
+		func() bool { return userC.HasErrorMatching(respTypeSubscribeError, wsErrCodeInvalidRequest) },
+		run.denyWaitDeadline, run.denyWaitRetryInterval, logger)
+	if outcome == denyOutcomeCancelled {
+		return checks, nil // parent context canceled (test stopped) — not a genuine failure
 	}
+	checks = append(checks, denyCheckResult("group subscribe denied", outcome, denyErr))
+
+	// Check 6: User subscribe denied — userB subscribes to userA's dm channel → subscribe_error.
+	// dm.{principal} resolves to the JWT subject, so userB has no rule granting dm.test-user-a.
+	userB.ClearErrors()
+	outcome, denyErr = waitForDeny(ctx,
+		func() error { return userB.Client.Subscribe([]string{dmAChannel}) },
+		func() bool { return userB.HasErrorMatching(respTypeSubscribeError, wsErrCodeInvalidRequest) },
+		run.denyWaitDeadline, run.denyWaitRetryInterval, logger)
+	if outcome == denyOutcomeCancelled {
+		return checks, nil
+	}
+	checks = append(checks, denyCheckResult("user subscribe denied", outcome, denyErr))
+
+	// Check 7 (strengthened, LAST per R-9): Publish authorization — userC publishes to room.vip,
+	// which it may not publish to → publish_error/forbidden. Positive vip publish stays covered by
+	// check 3 (group-scoped vip). ClearErrors here genuinely drains userC's leftover subscribe_error
+	// from check 5 (FR-011 exercise). No transport-error-pass or silently-dropped-pass branch: the
+	// sole pass path is the observed publish_error/forbidden deny frame.
+	userC.ClearErrors()
+	outcome, denyErr = waitForDeny(ctx,
+		func() error { return userC.Client.Publish(vipChannel, []byte(`{"msg_id":"auth-test","ts":0}`)) },
+		func() bool { return userC.HasErrorMatching(respTypePublishError, wsErrCodeForbidden) },
+		run.denyWaitDeadline, run.denyWaitRetryInterval, logger)
+	if outcome == denyOutcomeCancelled {
+		return checks, nil
+	}
+	checks = append(checks, denyCheckResult("publish auth rejection", outcome, denyErr))
 
 	return checks, nil
 }

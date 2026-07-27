@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/klurvio/sukko/cmd/tester/metrics"
 	"github.com/klurvio/sukko/cmd/tester/restpublish"
@@ -20,110 +19,6 @@ import (
 // locally: the tester treats frame types as bare strings (ws/client.go) and imports no
 // internal/server code — a local const avoids tester→server coupling (§X/§XVIII).
 const respTypeSubscribeError = "subscribe_error"
-
-// Private-channel deny-wait tuning (#216). Deliberately named constants, not env vars: an
-// internal test-driver robustness bound has no per-deployment tuning need (same reasoning as
-// the hardcoded webhook retry schedule). Decoupled from TESTER_AUTH_UPGRADE_TIMEOUT — this
-// wait has no auth-upgrade handshake; borrowing that knob was a dual-purpose value (§XV).
-const (
-	// apiKeyDenyDeadline bounds the whole deny wait. Preserves the previous effective 10s
-	// bound, so the common prompt-deny case is not slower than before.
-	apiKeyDenyDeadline = 10 * time.Second
-	// apiKeyDenyRetryInterval is the fixed re-subscribe cadence. A send happens only while
-	// send_time + interval ≤ deadline, so every attempt's deny has a full round-trip window
-	// before the deadline — at production values that is exactly 3 attempts (t=0, 3s, 6s;
-	// the t=9s send is suppressed). Fixed interval (not exponential backoff) is intentional:
-	// §IV's backoff mandate covers infrastructure reconnection, not a test-driver poll, and a
-	// predictable cadence keeps the window arithmetic and the deterministic unit tests sound.
-	apiKeyDenyRetryInterval = 3 * time.Second
-)
-
-// privateDenyOutcome classifies how the private-channel deny wait ended.
-type privateDenyOutcome int
-
-const (
-	denyOutcomeDenied         privateDenyOutcome = iota // a deny frame arrived — the check's success signal
-	denyOutcomeTimedOut                                 // deadline elapsed with no deny — hard fail
-	denyOutcomeTransportError                           // a subscribe write failed with no pending deny and a live parent ctx — hard fail
-	denyOutcomeCancelled                                // parent context canceled — clean short-circuit, no result recorded
-)
-
-// waitForPrivateDeny sends the private-channel subscribe and waits for the gateway's
-// asynchronous deny frame, re-sending on a bounded fixed interval so a single slow or lost
-// deny round-trip under load cannot flake the check (#216). Re-subscribing to an unauthorized
-// channel is idempotent — every attempt is filtered and yields another deny frame.
-//
-// deadline and interval come from the TestRun fields (seeded unconditionally in execute()
-// from the consts above; tests inject small values) — they are authoritative, so there is
-// deliberately NO <= 0 fallback here.
-func waitForPrivateDeny(ctx context.Context, subscribe func() error, errCh <-chan testerws.Message, deadline, interval time.Duration, logger zerolog.Logger) (privateDenyOutcome, error) {
-	start := time.Now()
-	denyCtx, cancel := context.WithTimeout(ctx, deadline)
-	defer cancel()
-
-	// transportExit is the single exit path for a failed subscribe write (initial or retry).
-	// It performs exactly ONE non-blocking errCh receive — the only permitted mid-wait
-	// non-blocking read (FR-008): a buffered deny wins over the transport error because the
-	// check has already observed its success signal; consuming it is the desired outcome, so
-	// the discard hazard that forbids mid-wait drains does not apply. Then the parent-ctx
-	// guard: a write that failed because the battery is tearing down must not record a
-	// spurious FAIL.
-	transportExit := func(sendErr error) (privateDenyOutcome, error) {
-		select {
-		case <-errCh:
-			return denyOutcomeDenied, nil
-		default:
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return denyOutcomeCancelled, fmt.Errorf("private deny wait canceled: %w", ctxErr) // outcome is the discriminator; the wrapped ctx error is informational
-		}
-		return denyOutcomeTransportError, sendErr
-	}
-
-	attempt := 1
-	logger.Debug().Int("attempt", attempt).Msg("private deny wait: subscribe sent")
-	if err := subscribe(); err != nil {
-		return transportExit(err)
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-errCh:
-			logger.Debug().Int("attempt", attempt).Bool("saved_by_retry", attempt > 1).
-				Dur("elapsed", time.Since(start)).Msg("private deny received")
-			return denyOutcomeDenied, nil
-		case <-ticker.C:
-			// Windowed send rule: only re-subscribe while this attempt's deny still has a
-			// full round-trip window before the deadline — a send at deadline−ε would just
-			// reproduce the flake on the final attempt.
-			if elapsed := time.Since(start); elapsed+interval <= deadline {
-				attempt++
-				logger.Debug().Int("attempt", attempt).Dur("elapsed", elapsed).Msg("private deny wait: re-subscribe sent")
-				if err := subscribe(); err != nil {
-					return transportExit(err)
-				}
-			}
-		case <-denyCtx.Done():
-			// Deny-wins at the boundary too: a deny buffered exactly as the deadline fires must
-			// not be discarded by select's pseudo-random tie-break (that would reintroduce a
-			// narrow #216). Probe errCh before declaring timeout — same principle as transportExit.
-			select {
-			case <-errCh:
-				return denyOutcomeDenied, nil
-			default:
-			}
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return denyOutcomeCancelled, fmt.Errorf("private deny wait canceled: %w", ctxErr) // outcome is the discriminator; the wrapped ctx error is informational
-			}
-			logger.Warn().Int("attempts", attempt).Dur("elapsed", time.Since(start)).
-				Msg("private deny wait: deadline elapsed with no deny")
-			return denyOutcomeTimedOut, nil
-		}
-	}
-}
 
 // validateAPIKey runs the api-key validation suite.
 // Validates that an API-key-only client can subscribe to public channels,
@@ -158,8 +53,8 @@ func validateAPIKey(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 		}
 	}
 
-	// errCh receives application-layer error frames (type=="error") from the gateway.
-	// Buffered(1) so the ReadLoop goroutine is never blocked sending to it (§VII channels rule).
+	// errCh receives error / subscribe_error / publish_error frames (the deny signals) from the
+	// gateway/server. Buffered(1) so the ReadLoop goroutine is never blocked sending to it (§VII).
 	errCh := make(chan testerws.Message, 1)
 
 	suiteLogger := logger.With().Str("suite", "api-key").Logger()
@@ -170,10 +65,12 @@ func validateAPIKey(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 		APIKey:     run.apiKey,
 		Logger:     suiteLogger,
 		OnMessage: func(msg testerws.Message) {
-			// A denied subscribe surfaces as a subscribe_error frame (the gateway filters the
-			// unauthorized channel, leaving an empty subscribe, and the server replies
-			// subscribe_error). Match both it and generic error frames (§XVII protocol match).
-			if msg.Type == "error" || msg.Type == respTypeSubscribeError {
+			// Deny signals: a denied subscribe → subscribe_error (gateway filters the unauthorized
+			// channel → empty subscribe → server subscribe_error); a denied publish → publish_error.
+			// Capture both (plus generic error) onto errCh; the deny checks discriminate on the
+			// exact (type, code) pair via pollDenyFromErrCh, so a leftover of the wrong type/code
+			// never false-passes.
+			if msg.Type == "error" || msg.Type == respTypeSubscribeError || msg.Type == respTypePublishError {
 				select {
 				case errCh <- msg:
 				default:
@@ -227,45 +124,20 @@ func validateAPIKey(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 	// Check 3: Subscribe to private channel — expect the gateway to deny it. The gateway
 	// filters the unauthorized channel out, leaving an empty subscribe, and the server
 	// replies with a subscribe_error frame (captured on errCh). The deny is asynchronous, so
-	// a single subscribe-then-wait flaked under load (#216) — waitForPrivateDeny re-sends the
+	// a single subscribe-then-wait flaked under load (#216) — waitForDeny re-sends the
 	// subscribe on a bounded interval until a deny arrives or the deadline elapses.
-	// Drain any stale frames first so a leftover error/subscribe_error cannot false-pass.
-	// The drain runs exactly once, HERE, never mid-wait — a mid-wait discard-drain could race
-	// a real deny into its default branch and throw it away (the deny-wins probe inside
-	// waitForPrivateDeny is the only permitted mid-wait non-blocking receive).
-	for drained := false; !drained; {
-		select {
-		case <-errCh:
-		default:
-			drained = true
-		}
-	}
+	// Drain stale frames exactly once before the wait (drain-once, FR-011); the bounded-retry
+	// waitForDeny owns the re-issue + deny-wins probe and never re-clears.
+	drainMessages(errCh)
 	privateChannel := run.Config.TenantID + privateChannelSuffix
-	outcome, denyErr := waitForPrivateDeny(ctx,
+	outcome, denyErr := waitForDeny(ctx,
 		func() error { return client.Subscribe([]string{privateChannel}) },
-		errCh, run.apiKeyDenyDeadline, run.apiKeyDenyRetryInterval, suiteLogger)
-	switch outcome {
-	case denyOutcomeDenied:
-		checks = append(checks, metrics.CheckResult{
-			Name:   "private channel denied",
-			Status: metrics.CheckStatusPass,
-		})
-	case denyOutcomeCancelled:
-		// Parent context canceled (test stopped) — not a genuine check failure.
-		return checks, nil
-	case denyOutcomeTransportError:
-		checks = append(checks, metrics.CheckResult{
-			Name:   "private channel denied",
-			Status: metrics.CheckStatusFail,
-			Error:  fmt.Sprintf("unexpected transport error on private subscribe: %v", denyErr),
-		})
-	case denyOutcomeTimedOut:
-		checks = append(checks, metrics.CheckResult{
-			Name:   "private channel denied",
-			Status: metrics.CheckStatusFail,
-			Error:  "timed out waiting for gateway to deny private channel subscription",
-		})
+		pollDenyFromErrCh(errCh, respTypeSubscribeError, wsErrCodeInvalidRequest),
+		run.denyWaitDeadline, run.denyWaitRetryInterval, suiteLogger)
+	if outcome == denyOutcomeCancelled {
+		return checks, nil // parent context canceled (test stopped) — not a genuine failure
 	}
+	checks = append(checks, denyCheckResult("private channel denied", outcome, denyErr))
 
 	// Check 4: REST publish with API key — expect HTTP 403 FORBIDDEN.
 	// API keys cannot REST-publish; the gateway rejects with 403.
@@ -293,6 +165,42 @@ func validateAPIKey(ctx context.Context, run *TestRun, logger zerolog.Logger) ([
 			Error:  fmt.Sprintf("expected HTTP 403, got %d", restStatus),
 		})
 	}
+
+	// Checks 5-7 (FR-004/FR-005): additional scoping deny checks for the API-key-only client.
+	// Each isolates a single unauthorized channel and asserts the platform's real wire deny signal.
+	// The gateway filters the unauthorized subscribe to empty → server subscribe_error/invalid_request;
+	// a forbidden WS publish → publish_error/forbidden. drainMessages once before each wait so a stale
+	// frame from a prior check cannot false-pass (drain-once, FR-011); waitForDeny owns the re-issue.
+	subscribeDenyChecks := []struct {
+		name    string
+		channel string
+	}{
+		{"group channel denied", tenantChannel(run.Config.TenantID, "room.vip")},
+		{"user channel denied", tenantChannel(run.Config.TenantID, "dm.denied-user")},
+	}
+	for _, dc := range subscribeDenyChecks {
+		drainMessages(errCh)
+		outcome, denyErr := waitForDeny(ctx,
+			func() error { return client.Subscribe([]string{dc.channel}) },
+			pollDenyFromErrCh(errCh, respTypeSubscribeError, wsErrCodeInvalidRequest),
+			run.denyWaitDeadline, run.denyWaitRetryInterval, suiteLogger)
+		if outcome == denyOutcomeCancelled {
+			return checks, nil // parent context canceled (test stopped) — not a genuine failure
+		}
+		checks = append(checks, denyCheckResult(dc.name, outcome, denyErr))
+	}
+
+	// Check 7: WS publish denied — an API-key-only client cannot publish over WS.
+	drainMessages(errCh)
+	publishChannel := tenantChannel(run.Config.TenantID, "general.test")
+	pubOutcome, pubDenyErr := waitForDeny(ctx,
+		func() error { return client.Publish(publishChannel, []byte(`{"msg_id":"apikey-ws-publish","ts":0}`)) },
+		pollDenyFromErrCh(errCh, respTypePublishError, wsErrCodeForbidden),
+		run.denyWaitDeadline, run.denyWaitRetryInterval, suiteLogger)
+	if pubOutcome == denyOutcomeCancelled {
+		return checks, nil // parent context canceled (test stopped) — not a genuine failure
+	}
+	checks = append(checks, denyCheckResult("ws publish denied", pubOutcome, pubDenyErr))
 
 	return checks, nil
 }
