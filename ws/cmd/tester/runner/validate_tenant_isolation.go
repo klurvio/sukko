@@ -111,6 +111,22 @@ func validateTenantIsolation(ctx context.Context, run *TestRun, logger zerolog.L
 	// Check 2: Publish from tenant B → only user B receives
 	result = engine.PublishAndVerify(ctx, userB.AsPublisher(), chanB, []*TestUser{userB}, allUsers)
 	checks = append(checks, deliveryCheck("tenant B → only B receives", result))
+	clearAll(allUsers)
+
+	// Check 3 (FR-006): cross-tenant subscribe actively rejected — userA (tenant A) subscribes to
+	// tenant B's channel and must be denied at the gateway, not merely receive nothing. The gateway
+	// filters the cross-tenant channel to empty → server subscribe_error/invalid_request. ClearErrors
+	// drains userA's captured-error store once before the wait (drain-once, FR-011); waitForDeny owns
+	// the re-issue + deny-wins probe.
+	userA.ClearErrors()
+	outcome, denyErr := waitForDeny(ctx,
+		func() error { return userA.Client.Subscribe([]string{chanB}) },
+		func() bool { return userA.HasErrorMatching(respTypeSubscribeError, wsErrCodeInvalidRequest) },
+		run.denyWaitDeadline, run.denyWaitRetryInterval, logger)
+	if outcome == denyOutcomeCancelled {
+		return checks, nil // parent context canceled (test stopped) — not a genuine failure
+	}
+	checks = append(checks, denyCheckResult("cross-tenant subscribe denied", outcome, denyErr))
 
 	return checks, nil
 }

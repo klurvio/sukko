@@ -130,11 +130,11 @@ type TestRun struct {
 	// Auth mode fields set by execute() before dispatching to test functions.
 	apiKey             string        `json:"-"` // effective API key for this run
 	authUpgradeTimeout time.Duration `json:"-"` // timeout for auth_ack in upgrade flow (upgrade suite only)
-	// api-key suite private-channel deny-wait bounds, seeded unconditionally by execute()
-	// from the apiKeyDeny* consts (no env var — internal robustness bounds); tests inject
-	// small values. Authoritative: consumers have no <= 0 fallback.
-	apiKeyDenyDeadline      time.Duration `json:"-"` // overall deadline for the deny wait
-	apiKeyDenyRetryInterval time.Duration `json:"-"` // re-subscribe interval within the deny wait
+	// Authorization deny-wait bounds, seeded unconditionally by execute() from the
+	// defaultDenyWait* consts (no env var — internal robustness bounds); tests inject small
+	// values. Serve every deny check across all suites. Authoritative: consumers have no <= 0 fallback.
+	denyWaitDeadline      time.Duration `json:"-"` // overall deadline for any authorization deny wait (subscribe/publish, all suites)
+	denyWaitRetryInterval time.Duration `json:"-"` // re-issue interval within a deny wait
 	// Webhook suite fields set by execute().
 	webhookBaseURL         string        `json:"-"`
 	webhookDeliveryTimeout time.Duration `json:"-"`
@@ -485,10 +485,10 @@ func (r *Runner) execute(ctx context.Context, run *TestRun) {
 	run.jwtLifetime = r.cfg.JWTLifetime
 	run.jwtRefreshBefore = r.cfg.JWTRefreshBefore
 	run.authUpgradeTimeout = r.cfg.AuthUpgradeTimeout
-	// api-key deny-wait bounds: unconditional, from the consts — NOT from r.cfg (no env var;
-	// the fields are authoritative so the suite needs no fallback).
-	run.apiKeyDenyDeadline = apiKeyDenyDeadline
-	run.apiKeyDenyRetryInterval = apiKeyDenyRetryInterval
+	// Deny-wait bounds: unconditional, from the consts — NOT from r.cfg (no env var; the fields
+	// are authoritative so no fallback). Serve every authorization deny check across all suites.
+	run.denyWaitDeadline = defaultDenyWaitDeadline
+	run.denyWaitRetryInterval = defaultDenyWaitRetryInterval
 	run.webhookBaseURL = r.cfg.WebhookBaseURL
 	run.webhookDeliveryTimeout = r.cfg.WebhookDeliveryTimeout
 	run.webhookRetryTimeout = r.cfg.WebhookRetryTimeout

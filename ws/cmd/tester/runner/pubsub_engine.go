@@ -20,6 +20,11 @@ import (
 // defaultDeliveryTimeout is the maximum time to wait for message delivery.
 const defaultDeliveryTimeout = 5 * time.Second
 
+// denyPollInterval is the cadence for polling the captured-error store while waiting for a deny
+// frame. Used by the shared waitForDeny helper (deny_wait.go); fast relative to the re-issue
+// interval so deny detection stays sub-100ms.
+const denyPollInterval = 100 * time.Millisecond
+
 // misrouteGraceWindow is the pause after all expected receivers have the message, giving a
 // misrouted copy time to arrive at a must-NOT-receive user before buildResult snapshots
 // MisroutedTo. This is the grace window the tenant-isolation negative assertion relies on
@@ -126,11 +131,19 @@ type TestUser struct {
 	mu            sync.RWMutex
 	received      map[string]receivedMsg // message ID → receipt info
 	receivedOrder []string               // message IDs in arrival order
+	errFrames     []ErrorFrame           // captured subscribe_error/publish_error frames (deny-check signal)
 }
 
 type receivedMsg struct {
 	channel string
 	at      time.Time
+}
+
+// ErrorFrame is a captured inbound error frame (subscribe_error / publish_error) with its
+// top-level code — the observable deny signal the authorization deny checks assert on.
+type ErrorFrame struct {
+	Type string
+	Code string
 }
 
 // HasReceived returns whether the user received a message with the given ID.
@@ -169,6 +182,27 @@ func (u *TestUser) ClearReceived() {
 	u.receivedOrder = u.receivedOrder[:0]
 }
 
+// HasErrorMatching reports whether a captured error frame matches the exact (type, code) pair.
+// Joint match: a frame with a different type OR a different code does NOT satisfy it (FR-001).
+func (u *TestUser) HasErrorMatching(errType, code string) bool {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+	for _, f := range u.errFrames {
+		if f.Type == errType && f.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+// ClearErrors resets the captured error frames. Deny checks call it exactly once before issuing
+// their isolated bad request (drain-once-before-wait, FR-011). MUST NOT touch delivery state.
+func (u *TestUser) ClearErrors() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.errFrames = u.errFrames[:0]
+}
+
 // acceptsDeliveryEnvelope reports whether a WebSocket message type is a delivered payload
 // worth tracking for a delivery check. Delivered broadcasts arrive as {"type":"message",...}
 // (the server's BroadcastEnvelope); peer-forwarded publishes as {"type":"publish",...} —
@@ -182,6 +216,16 @@ func acceptsDeliveryEnvelope(msgType string) bool {
 // onMessage is the callback for incoming WebSocket messages.
 // Called from the client's read loop goroutine — writes are mutex-protected.
 func (u *TestUser) onMessage(msg testerws.Message) {
+	// Error-capture branch FIRST, returns after capturing (FR-001): subscribe_error/publish_error
+	// are the deny signals the authorization checks assert on. These types are disjoint from the
+	// delivery-envelope types (message/publish), so a captured error frame never reaches delivery
+	// tracking — even a publish_error whose Data happens to carry a msg_id-shaped field.
+	if msg.Type == respTypeSubscribeError || msg.Type == respTypePublishError {
+		u.mu.Lock()
+		u.errFrames = append(u.errFrames, ErrorFrame{Type: msg.Type, Code: msg.Code})
+		u.mu.Unlock()
+		return
+	}
 	if !acceptsDeliveryEnvelope(msg.Type) {
 		return
 	}
