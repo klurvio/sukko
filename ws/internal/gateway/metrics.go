@@ -64,6 +64,34 @@ const (
 	CloseReasonTenantUnavailable    = "tenant_unavailable"      // tenant-config projection cold; API-key slug resolution failed (retryable)
 )
 
+// Token-revocation force-disconnect strings, shared by the fan-out (HandleRevocation) and
+// the post-register re-check (§I — defined once, referenced everywhere).
+const (
+	// WS close-frame reason text for a revocation force-disconnect.
+	CloseReasonTokenRevoked = "token revoked"
+	CloseReasonUserRevoked  = "user revoked"
+	// Transport label values (also returned by Proxy.Transport / sseConnection.Transport).
+	TransportWS  = "ws"
+	TransportSSE = "sse"
+	// Detection-path values for the `detection` metric label / log field: which check found
+	// the revocation. NOT named "source" — that label name is taken by channelRulesLookupTotal
+	// (LookupSource*).
+	DetectionFanOut       = "fan_out"       // closed by the one-shot HandleRevocation fan-out
+	DetectionPostRegister = "post_register" // closed by the post-register re-check (race recovered)
+)
+
+// Metric label / log field key names for the token-revocation force-disconnect signal.
+// The metric label "type" and the log field "revocation_type" are different keys for the
+// same concept: the metric label name is PRESERVED for dashboard/alert compatibility
+// (do not rename it to match the log field).
+const (
+	labelRevocationType    = "type"
+	labelTransport         = "transport"
+	labelDetection         = "detection"
+	logFieldRevocationType = "revocation_type"
+	logFieldDetection      = "detection"
+)
+
 // Prometheus metrics for the gateway service.
 // Uses gateway_ prefix for service-specific metrics.
 
@@ -464,12 +492,13 @@ var (
 	tokenForceDisconnectsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "gateway_token_force_disconnects_total",
 		Help: "Total connections force-disconnected due to token revocation",
-	}, []string{"type", "transport"})
+	}, []string{labelRevocationType, labelTransport, labelDetection})
 )
 
-// RecordTokenForceDisconnect records a force-disconnect event by revocation type and transport.
-func RecordTokenForceDisconnect(revocationType, transport string) {
-	tokenForceDisconnectsTotal.WithLabelValues(revocationType, transport).Inc()
+// RecordTokenForceDisconnect records a force-disconnect event by revocation type, transport,
+// and detection path (fan-out vs post-register re-check — DetectionFanOut / DetectionPostRegister).
+func RecordTokenForceDisconnect(revocationType, transport, detection string) {
+	tokenForceDisconnectsTotal.WithLabelValues(revocationType, transport, detection).Inc()
 }
 
 // --- Identity Header Forwarding Metrics ---

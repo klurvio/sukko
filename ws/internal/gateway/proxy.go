@@ -931,8 +931,8 @@ func (p *Proxy) ForceClose(code int, reason string) {
 	})
 }
 
-// Transport returns "ws" for WebSocket connections.
-func (p *Proxy) Transport() string { return "ws" }
+// Transport returns TransportWS for WebSocket connections.
+func (p *Proxy) Transport() string { return TransportWS }
 
 // ConnectionClaims returns the JWT claims from this connection for revocation matching.
 // Implements the Connection interface.

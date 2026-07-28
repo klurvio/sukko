@@ -64,3 +64,16 @@ type licenseWatcher interface {
 	State() int32
 	Close() error
 }
+
+// RevocationChecker answers token-revocation queries for the gateway (connect-time check
+// and the post-register re-check). Satisfied by *provapi.StreamRevocationRegistry; defined
+// at the consumer for mock injection (same pattern as APIKeyLookup / licenseWatcher).
+type RevocationChecker interface {
+	// IsRevoked reports whether the token is revoked. Lock-free snapshot read.
+	IsRevoked(jti, sub, tenantID string, iat int64) bool
+	// Close releases resources held by the checker.
+	Close() error
+}
+
+// Compile-time assertion that the concrete stream registry satisfies RevocationChecker.
+var _ RevocationChecker = (*provapi.StreamRevocationRegistry)(nil)

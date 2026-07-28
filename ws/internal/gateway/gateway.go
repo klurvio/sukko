@@ -78,7 +78,7 @@ type Gateway struct {
 
 	// Token revocation (Pro edition)
 	connectionRegistry *ConnectionRegistry
-	revocationRegistry *provapi.StreamRevocationRegistry
+	revocationRegistry RevocationChecker
 
 	logger zerolog.Logger
 }
@@ -223,8 +223,8 @@ func (gw *Gateway) SetPushClient(client PushForwarder) {
 
 // SetRevocationRegistry sets the token revocation stream registry.
 // Called from main.go after the Gateway is created. The OnRevocation callback
-// is set by the caller to invoke gw.handleRevocation.
-func (gw *Gateway) SetRevocationRegistry(reg *provapi.StreamRevocationRegistry) {
+// is set by the caller to invoke gw.HandleRevocation.
+func (gw *Gateway) SetRevocationRegistry(reg RevocationChecker) {
 	gw.revocationRegistry = reg
 }
 
@@ -458,6 +458,10 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if gw.connectionRegistry != nil && !apiKeyOnly && claims != nil {
 		gw.connectionRegistry.Register(proxy, tenantID, claims.Subject, claims.ID)
 		defer gw.connectionRegistry.Unregister(proxy, tenantID, claims.Subject, claims.ID)
+		// Close the fan-out registration race: re-check revocation now that we are registered,
+		// strictly after Register (FR-001, §IX). A revoke that fanned out between the upgrade and
+		// Register above would otherwise miss this connection permanently.
+		gw.recheckRevocationAfterRegister(proxy, tenantID)
 	}
 
 	proxy.Run(ctx)
@@ -699,24 +703,25 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 	}
 
 	switch entry.Type {
-	case "token":
+	case provapi.RevocationTypeToken:
 		conn := gw.connectionRegistry.FindByJTI(entry.JTI)
 		if conn == nil {
 			return
 		}
 		transport := conn.Transport()
-		conn.ForceClose(int(ws.StatusPolicyViolation), "token revoked")
+		conn.ForceClose(int(ws.StatusPolicyViolation), CloseReasonTokenRevoked)
 		sub, jti, _ := conn.ConnectionClaims()
 		gw.logger.Info().
 			Str("jti", jti).
 			Str("sub", sub).
 			Str(logging.LogKeyTenantSlug, entry.TenantID).
-			Str("transport", transport).
-			Str("revocation_type", "token").
+			Str(labelTransport, transport).
+			Str(logFieldRevocationType, provapi.RevocationTypeToken).
+			Str(logFieldDetection, DetectionFanOut).
 			Msg("connection force-disconnected: token revoked")
-		RecordTokenForceDisconnect("token", transport)
+		RecordTokenForceDisconnect(provapi.RevocationTypeToken, transport, DetectionFanOut)
 
-	case "user":
+	case provapi.RevocationTypeUser:
 		conns := gw.connectionRegistry.FindBySub(entry.TenantID, entry.Sub)
 		for _, conn := range conns {
 			_, _, iat := conn.ConnectionClaims()
@@ -724,18 +729,59 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 				continue // token issued after revocation — re-enabled user, skip
 			}
 			transport := conn.Transport()
-			conn.ForceClose(int(ws.StatusPolicyViolation), "user revoked")
+			conn.ForceClose(int(ws.StatusPolicyViolation), CloseReasonUserRevoked)
 			sub, jti, _ := conn.ConnectionClaims()
 			gw.logger.Info().
 				Str("jti", jti).
 				Str("sub", sub).
 				Str(logging.LogKeyTenantSlug, entry.TenantID).
-				Str("transport", transport).
-				Str("revocation_type", "user").
+				Str(labelTransport, transport).
+				Str(logFieldRevocationType, provapi.RevocationTypeUser).
+				Str(logFieldDetection, DetectionFanOut).
 				Msg("connection force-disconnected: user revoked")
-			RecordTokenForceDisconnect("user", transport)
+			RecordTokenForceDisconnect(provapi.RevocationTypeUser, transport, DetectionFanOut)
 		}
 	}
+}
+
+// recheckRevocationAfterRegister closes the revocation fan-out registration race (§IX): the
+// one-shot HandleRevocation fan-out only force-closes connections registered at the instant it
+// runs. A connection whose handler completed its client-facing upgrade but had not yet reached
+// ConnectionRegistry.Register when a matching revoke fanned out is missed and never re-swept.
+//
+// MUST be called strictly AFTER Register returns, in the same goroutine, loading the snapshot
+// fresh (via IsRevoked): the revocation stream stores its snapshot before firing OnRevocation
+// (see revocation_stream.go), and register/find are serialized by the registry mutex, so for any
+// revocation either the fan-out finds this connection or this re-check observes the stored
+// revocation — the window cannot miss both. Reversing the order (or caching a pre-Register
+// verdict) reopens the miss. No-op when no revocation registry is configured (§IV).
+func (gw *Gateway) recheckRevocationAfterRegister(conn Connection, tenantID string) {
+	if gw.revocationRegistry == nil {
+		return
+	}
+	sub, jti, iat := conn.ConnectionClaims()
+	if !gw.revocationRegistry.IsRevoked(jti, sub, tenantID, iat) {
+		return
+	}
+	// Attribution-only: re-probe with sub="" to isolate the tenant-scoped jti branch (jti wins
+	// if both match, mirroring IsRevoked's order). The close verdict is already committed above;
+	// a snapshot change between the two lock-free loads is benign (only shifts a token/user
+	// label). Do NOT collapse into one load — that loses the jti-vs-sub discrimination.
+	revType, reason := provapi.RevocationTypeUser, CloseReasonUserRevoked
+	if gw.revocationRegistry.IsRevoked(jti, "", tenantID, iat) {
+		revType, reason = provapi.RevocationTypeToken, CloseReasonTokenRevoked
+	}
+	transport := conn.Transport()
+	conn.ForceClose(int(ws.StatusPolicyViolation), reason)
+	gw.logger.Info().
+		Str("jti", jti).
+		Str("sub", sub).
+		Str(logging.LogKeyTenantSlug, tenantID).
+		Str(labelTransport, transport).
+		Str(logFieldRevocationType, revType).
+		Str(logFieldDetection, DetectionPostRegister).
+		Msg("connection force-disconnected: revoked during registration window")
+	RecordTokenForceDisconnect(revType, transport, DetectionPostRegister)
 }
 
 // SetAnalyticsCollector injects the analytics collector. Called from main.go after New().
