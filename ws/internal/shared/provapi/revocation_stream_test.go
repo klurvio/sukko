@@ -75,6 +75,32 @@ func TestIsRevoked_BySub(t *testing.T) {
 	}
 }
 
+// TestIsRevoked_BySub_IatBoundary pins the exact iat==RevokedAt boundary of the real predicate
+// (the gateway post-register re-check mirrors this in its mock; this test binds the mock to the
+// real implementation for the cross-path-agreement argument). The condition is `iat < RevokedAt`,
+// so iat == RevokedAt is NOT revoked (re-enabled boundary), consistent with the fan-out's
+// `iat >= RevokedAt` skip.
+func TestIsRevoked_BySub_IatBoundary(t *testing.T) {
+	t.Parallel()
+	const revokedAt = int64(1000)
+	snap := newTestSnapshot()
+	snap.SubRevocations["acme:alice"] = &subEntry{
+		RevokedAt: revokedAt,
+		ExpiresAt: time.Now().Add(1 * time.Hour).Unix(),
+	}
+	r := newTestRegistryWithSnapshot(snap)
+
+	if !r.IsRevoked("tok-x", "alice", "acme", revokedAt-1) {
+		t.Error("iat < RevokedAt must be revoked")
+	}
+	if r.IsRevoked("tok-x", "alice", "acme", revokedAt) {
+		t.Error("iat == RevokedAt must NOT be revoked (boundary — re-enabled)")
+	}
+	if r.IsRevoked("tok-x", "alice", "acme", revokedAt+1) {
+		t.Error("iat > RevokedAt must NOT be revoked")
+	}
+}
+
 func TestIsRevoked_NotRevoked(t *testing.T) {
 	t.Parallel()
 	r := newTestRegistryWithSnapshot(newTestSnapshot())

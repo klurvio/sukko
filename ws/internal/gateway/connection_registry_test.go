@@ -7,15 +7,22 @@ import (
 
 // mockConnection implements Connection for testing.
 type mockConnection struct {
-	sub, jti string
-	iat      int64
-	closed   bool
-	mu       sync.Mutex
+	sub, jti   string
+	iat        int64
+	transport  string // "" normalizes to "ws" (see Transport) so existing call sites keep working
+	closed     bool
+	closeCount int
+	lastCode   int
+	lastReason string
+	mu         sync.Mutex
 }
 
-func (m *mockConnection) ForceClose(_ int, _ string) {
+func (m *mockConnection) ForceClose(code int, reason string) {
 	m.mu.Lock()
 	m.closed = true
+	m.closeCount++
+	m.lastCode = code
+	m.lastReason = reason
 	m.mu.Unlock()
 }
 
@@ -23,7 +30,12 @@ func (m *mockConnection) ConnectionClaims() (sub, jti string, iat int64) {
 	return m.sub, m.jti, m.iat
 }
 
-func (m *mockConnection) Transport() string { return "ws" }
+func (m *mockConnection) Transport() string {
+	if m.transport == "" {
+		return TransportWS
+	}
+	return m.transport
+}
 
 func TestConnectionRegistry_RegisterAndFindByJTI(t *testing.T) {
 	t.Parallel()

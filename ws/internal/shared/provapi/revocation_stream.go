@@ -18,10 +18,19 @@ import (
 	"github.com/klurvio/sukko/internal/shared/logging"
 )
 
+// Revocation type values carried in RevocationEntry.Type and the
+// WatchTokenRevocations proto's TokenRevocation.Type. Shared by every consumer of the
+// revocation stream (gateway fan-out + post-register re-check, and — via a follow-up —
+// provisioning/push producers) so the concept is defined once (§I).
+const (
+	RevocationTypeToken = "token" // revoke a single token by jti
+	RevocationTypeUser  = "user"  // revoke all of a subject's tokens issued before RevokedAt
+)
+
 // RevocationEntry represents a single revocation received from the stream.
 type RevocationEntry struct {
 	TenantID  string
-	Type      string // "user" or "token"
+	Type      string // RevocationTypeUser or RevocationTypeToken
 	Sub       string
 	JTI       string
 	RevokedAt int64
@@ -260,12 +269,12 @@ func (r *StreamRevocationRegistry) applySnapshot(revocations []*provisioningv1.T
 			continue // skip expired
 		}
 		switch rev.GetType() {
-		case "token":
+		case RevocationTypeToken:
 			jtiMap[rev.GetJti()] = &jtiEntry{
 				TenantID:  rev.GetTenantSlug(),
 				ExpiresAt: rev.GetExpiresAt(),
 			}
-		case "user":
+		case RevocationTypeUser:
 			key := rev.GetTenantSlug() + ":" + rev.GetSub()
 			subMap[key] = &subEntry{
 				RevokedAt: rev.GetRevokedAt(),
@@ -274,6 +283,11 @@ func (r *StreamRevocationRegistry) applySnapshot(revocations []*provisioningv1.T
 		}
 	}
 
+	// ORDERING (load-bearing, §VII): the snapshot MUST be stored before the OnRevocation
+	// callbacks below fire. The gateway's post-register revocation re-check relies on this
+	// happens-before edge to close the fan-out registration race — a connection that
+	// registers after the fan-out's registry lookup re-checks IsRevoked against this
+	// already-stored snapshot. Moving the callback before the Store silently reopens the race.
 	r.snapshot.Store(&RevocationSnapshot{
 		JTIRevocations: jtiMap,
 		SubRevocations: subMap,
@@ -320,7 +334,7 @@ func (r *StreamRevocationRegistry) applyDelta(revocations []*provisioningv1.Toke
 
 	for _, rev := range revocations {
 		switch rev.GetType() {
-		case "token":
+		case RevocationTypeToken:
 			if rev.GetRemoved() {
 				delete(jtiMap, rev.GetJti())
 			} else if rev.GetExpiresAt() > now {
@@ -329,7 +343,7 @@ func (r *StreamRevocationRegistry) applyDelta(revocations []*provisioningv1.Toke
 					ExpiresAt: rev.GetExpiresAt(),
 				}
 			}
-		case "user":
+		case RevocationTypeUser:
 			key := rev.GetTenantSlug() + ":" + rev.GetSub()
 			if rev.GetRemoved() {
 				delete(subMap, key)
@@ -342,6 +356,11 @@ func (r *StreamRevocationRegistry) applyDelta(revocations []*provisioningv1.Toke
 		}
 	}
 
+	// ORDERING (load-bearing, §VII): the snapshot MUST be stored before the OnRevocation
+	// callbacks below fire. The gateway's post-register revocation re-check relies on this
+	// happens-before edge to close the fan-out registration race — a connection that
+	// registers after the fan-out's registry lookup re-checks IsRevoked against this
+	// already-stored snapshot. Moving the callback before the Store silently reopens the race.
 	r.snapshot.Store(&RevocationSnapshot{
 		JTIRevocations: jtiMap,
 		SubRevocations: subMap,

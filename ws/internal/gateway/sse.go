@@ -128,6 +128,10 @@ func (gw *Gateway) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		}
 		gw.connectionRegistry.Register(sseConn, authRes.TenantSlug, authRes.Claims.Subject, authRes.Claims.ID)
 		defer gw.connectionRegistry.Unregister(sseConn, authRes.TenantSlug, authRes.Claims.Subject, authRes.Claims.ID)
+		// Close the fan-out registration race on the SSE path: a matching revoke that fanned out
+		// before this Register would otherwise miss the stream. On a hit, sseCancel() ends it
+		// (FR-001, FR-003, §IX).
+		gw.recheckRevocationAfterRegister(sseConn, authRes.TenantSlug)
 	}
 
 	// Set SSE headers (FR-005)

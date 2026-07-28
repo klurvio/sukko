@@ -120,5 +120,5 @@ func (c *sseConnection) ConnectionClaims() (sub, jti string, iat int64) {
 	return c.sub, c.jti, c.iat
 }
 
-// Transport returns "sse".
-func (c *sseConnection) Transport() string { return "sse" }
+// Transport returns TransportSSE.
+func (c *sseConnection) Transport() string { return TransportSSE }
