@@ -183,6 +183,7 @@ jobs:
         run: |
           bash taskfiles/e2e/battery_guard_test.sh
           bash taskfiles/e2e/guard_test.sh
+          bash taskfiles/e2e/sentinel_guard_test.sh
 
   # ---------------------------------------------------------------------------
   # Grid matrix setup — smoke on push, full grid on schedule/dispatch
@@ -205,8 +206,10 @@ jobs:
             echo 'cells=["community-direct","pro-kafka","community-kafka-refused"]' >> "$GITHUB_OUTPUT"
           else
             # Full grid (nightly schedule + manual dispatch): every edition×backend cell —
-            # positive, negative (community-kafka-refused), and degradation (expired-direct).
-            echo 'cells=["community-direct","pro-kafka","enterprise-kafka","pro-direct","enterprise-direct","expired-direct","community-kafka-refused"]' >> "$GITHUB_OUTPUT"
+            # positive, negative (community-kafka-refused), degradation (expired-direct), and the
+            # Valkey Sentinel HA topology cell (community-direct-sentinel). Smoke (push) stays lean:
+            # the sentinel cell adds 4 containers (1 replica + 3 sentinels) + a chaos phase, so it runs nightly/dispatch only.
+            echo 'cells=["community-direct","pro-kafka","enterprise-kafka","pro-direct","enterprise-direct","expired-direct","community-kafka-refused","community-direct-sentinel"]' >> "$GITHUB_OUTPUT"
           fi
 
   # ---------------------------------------------------------------------------

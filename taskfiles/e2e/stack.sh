@@ -358,3 +358,218 @@ push_validate_guard() {
   fi
   echo "  push-validate guard: delivery=pass, no skips, report=pass ✓"
 }
+
+# ===========================================================================
+# Sentinel cell helpers (cell:community-direct-sentinel)
+# ---------------------------------------------------------------------------
+# Named constants + three PURE verdicts (stdin/args only — no clock, no docker,
+# fixture-covered by sentinel_guard_test.sh) + thin glue (docker/clock I/O around
+# the verdicts, untested by design — NFR-005). See
+# specs/.../valkey-sentinel-e2e/{spec,plan}.md.
+# ===========================================================================
+
+# Sentinel topology timing knobs. These MUST equal the pinned directives in
+# taskfiles/e2e/valkey-sentinel.override.yml (lockstep-checked by sentinel_guard_test.sh).
+E2E_SENTINEL_DOWN_AFTER_MS=5000
+E2E_SENTINEL_FAILOVER_TIMEOUT_MS=10000
+# Safety margin (seconds): the delivery probe is a whole `sukko test validate --suite pubsub`
+# run (~tens of seconds), so allow room for up to two probe re-runs plus compose-network
+# jitter on top of the sentinel detection+failover window.
+E2E_RECOVERY_SAFETY_MARGIN_S=75
+# The SOLE ms→s conversion seam (÷1000): the deadline and every elapsed value the recovery
+# verdict consumes are SECONDS (the live loop measures elapsed via `date +%s` deltas — bash
+# $SECONDS is NOT special under Task's mvdan/sh shell, so it must not be used for timing).
+E2E_RECOVERY_DEADLINE_S=$(( (E2E_SENTINEL_DOWN_AFTER_MS + E2E_SENTINEL_FAILOVER_TIMEOUT_MS) / 1000 + E2E_RECOVERY_SAFETY_MARGIN_S ))
+# SC-004 headroom gate: a recovery that consumes MORE than this fraction of the deadline reds
+# the cell — proof the deadline is not flake-tight (widen it if this trips).
+E2E_RECOVERY_HEADROOM_PCT=66
+
+# e2e_sentinel_role_verdict   (raw `SENTINEL master mymaster` reply on STDIN)
+# PURE. Returns 0 IFF the reply is a genuine sentinel master record for `mymaster`
+# (name=mymaster, flags contain "master", num-other-sentinels=2, quorum=2). Fails closed on an
+# empty reply or a data-node error reply (`ERR unknown command`). Backs FR-002a / Scenario 2
+# AC-3: proves the configured endpoints are genuinely SENTINEL-role, not three data nodes that
+# would satisfy len(addrs)>1 while leaving failover untested.
+e2e_sentinel_role_verdict() {
+  local reply prev="" line name="" flags="" others="" quorum=""
+  reply=$(cat)
+  if [ -z "$reply" ]; then
+    echo "    sentinel-role: EMPTY reply (sentinel unreachable / wrong port)" >&2
+    return 1
+  fi
+  if printf '%s' "$reply" | grep -qiE 'unknown (sub)?command|^ERR|wrong number of arguments'; then
+    echo "    sentinel-role: data-node reply, not a sentinel: $(printf '%s' "$reply" | head -1)" >&2
+    return 1
+  fi
+  # `SENTINEL master` returns a flat key/value list, one token per line: each key line is
+  # followed by its value line. Walk pairs (prev = key, current = value).
+  while IFS= read -r line; do
+    case "$prev" in
+      name) name="$line" ;;
+      flags) flags="$line" ;;
+      num-other-sentinels) others="$line" ;;
+      quorum) quorum="$line" ;;
+    esac
+    prev="$line"
+  done <<EOF
+$reply
+EOF
+  if [ "$name" = "mymaster" ] && printf '%s' "$flags" | grep -q "master" && [ "$others" = "2" ] && [ "$quorum" = "2" ]; then
+    echo "    sentinel-role: mymaster present (flags=$flags, other-sentinels=$others, quorum=$quorum) ✓"
+    return 0
+  fi
+  echo "    sentinel-role: FAILED (name='$name' flags='$flags' others='$others' quorum='$quorum'; want mymaster/master/2/2)" >&2
+  return 1
+}
+
+# e2e_sentinel_mode_log_verdict   (ws-server logs on STDIN)
+# PURE. Returns 0 IFF the broadcast bus logged Sentinel mode: a `"mode":"sentinel"` line is
+# present AND no `"mode":"direct"` line is (the two are emitted only by the broadcast bus's
+# connect log, valkey.go:170-179). Positive control for Scenario 1 AC-1a — discriminates a
+# genuinely Sentinel-engaged run from an accidentally-direct-but-working one.
+e2e_sentinel_mode_log_verdict() {
+  local logs
+  logs=$(cat)
+  if printf '%s\n' "$logs" | grep -q '"mode":"direct"'; then
+    echo "    mode-log: found a DIRECT-mode broadcast-bus line — Sentinel branch NOT taken" >&2
+    return 1
+  fi
+  if printf '%s\n' "$logs" | grep -q '"mode":"sentinel"'; then
+    echo "    mode-log: broadcast bus mode=sentinel ✓"
+    return 0
+  fi
+  echo "    mode-log: no \"mode\":\"sentinel\" broadcast-bus line found" >&2
+  return 1
+}
+
+# e2e_recovery_verdict <killed_master> <deadline_s> <headroom_pct>   (outcome stream on STDIN)
+# PURE. The stream is append-only outcome lines from the failover loop:
+#   promoted <new_master> <elapsed_s>   | delivered <elapsed_s> | nodelivery <elapsed_s> <err…>
+# A recovery is CREDITED iff a `delivered` line appears AFTER a `promoted` line whose master
+# differs from <killed_master> (signal-first-by-presence: the whole stream is scanned, so a
+# delivered following earlier nodelivery lines is still found — a delivery is never discarded
+# just because the loop's prior poll ticked nodelivery). Returns 0 iff credited AND the
+# recovery elapsed ≤ deadline×headroom_pct/100 (SC-004 headroom gate — a recovery consuming
+# more than the headroom, incl. anything at/after the deadline, reds the cell so the deadline
+# gets widened). Fails closed on: no valid promotion (h: promoted==killed), delivery only
+# before promotion (g: old-master false-positive), no delivery at all (b/c: deadline expired).
+e2e_recovery_verdict() {
+  local killed="$1" deadline="$2" headroom_pct="$3"
+  local line kind promoted_ok=0 promoted_master="" recovery_elapsed="" limit
+  while read -r kind rest; do
+    case "$kind" in
+      promoted)
+        set -- $rest
+        if [ "${1:-}" != "$killed" ] && [ -n "${1:-}" ]; then
+          promoted_ok=1
+          promoted_master="$1"
+        fi
+        ;;
+      delivered)
+        set -- $rest
+        # Credit only the FIRST delivery that follows a valid promotion.
+        if [ "$promoted_ok" = 1 ] && [ -z "$recovery_elapsed" ]; then
+          recovery_elapsed="${1:-}"
+        fi
+        ;;
+      *) : ;; # nodelivery / blank — ignored (scan continues; signal-first-by-presence)
+    esac
+  done
+  if [ -z "$recovery_elapsed" ]; then
+    echo "    recovery: NO credited delivery (valid promotion seen=$promoted_ok, new_master='$promoted_master' vs killed='$killed'; deadline ${deadline}s expired)" >&2
+    return 1
+  fi
+  limit=$(( deadline * headroom_pct / 100 ))
+  if [ "$recovery_elapsed" -le "$limit" ]; then
+    echo "    recovery: delivered ${recovery_elapsed}s after promotion to '$promoted_master' (≤ ${limit}s = ${headroom_pct}% of ${deadline}s) ✓"
+    return 0
+  fi
+  echo "    recovery: FLAKE-TIGHT — delivered at ${recovery_elapsed}s > headroom ${limit}s (${headroom_pct}% of ${deadline}s deadline); widen the deadline" >&2
+  return 1
+}
+
+# --- Thin glue (docker/clock I/O around the pure verdicts; untested by design — NFR-005) ---
+
+# e2e_sentinel_ready <compose…>
+# Queries a sentinel for the master record and pipes it to e2e_sentinel_role_verdict (FR-002a /
+# Scenario 2 AC-3). Exits non-zero (fails the cell) if the endpoints are not genuine sentinels.
+e2e_sentinel_ready() {
+  echo "  Sentinel role check (SENTINEL master mymaster)…"
+  "$@" exec -T valkey-sentinel-1 valkey-cli -p 26379 SENTINEL master mymaster 2>/dev/null \
+    | e2e_sentinel_role_verdict
+}
+
+# e2e_sentinel_mode_log_check <compose…>
+# Pipes ws-server logs to e2e_sentinel_mode_log_verdict — the positive control that the broadcast
+# bus took the Sentinel branch (Scenario 1 AC-1a). Fails the cell if mode=sentinel is absent.
+e2e_sentinel_mode_log_check() {
+  echo "  Broadcast-bus mode=sentinel positive control…"
+  "$@" logs ws-server 2>&1 | e2e_sentinel_mode_log_verdict
+}
+
+# e2e_sentinel_failover <tester_token> <compose…>
+# P2 chaos phase (FR-005, SC-004): hard-kill the master, then (phase 1) wait for the sentinels to
+# promote a NEW master — proof a real failover occurred — and (phase 2) probe broadcast-delivery
+# recovery THROUGH the promoted master. Structuring promotion BEFORE the delivery probe means a
+# credited delivery is unambiguously post-promotion (no old-master false-positive) and the logged
+# elapsed values are real. Every outcome line is BOTH written to the stream the pure
+# e2e_recovery_verdict judges AND echoed (`P2>`) so the CI log — the only surviving evidence after
+# `down -v` — shows the genuine failover timeline. Delivery probe reuses e2e_run_battery (§X;
+# NFR-006 tester-driver); cold-recovery instrument (a fresh pubsub round-trip proves the
+# server-side bus followed the sentinels to the promoted master).
+e2e_sentinel_failover() {
+  local token="$1"; shift
+  local killed killed_cid newmaster stream start rc promoted=0
+  stream=$(mktemp)
+  # emit: machine line → stream (for the verdict) AND human line → log (durable evidence).
+  emit() { echo "$1" >> "$stream"; echo "    P2> $1"; }
+
+  killed=$("$@" exec -T valkey-sentinel-1 valkey-cli -p 26379 SENTINEL get-master-addr-by-name mymaster 2>/dev/null | head -1)
+  killed_cid=$("$@" ps -q valkey)
+  echo "  pre-kill master: ${killed:-<unknown>} (container ${killed_cid:-<none>})"
+  echo "  SIGKILL the master container (valkey)…"
+  docker kill -s SIGKILL "$killed_cid" >/dev/null
+  # Elapsed is measured via `date +%s` deltas — bash $SECONDS is NOT special under Task's
+  # mvdan/sh shell (it stays 0), which would vacuate the deadline AND the SC-004 headroom gate.
+  start=$(date +%s)
+
+  # Phase 1 — wait for the sentinels to promote a replica (bounded by the derived deadline). A
+  # promotion requires the master to be marked +odown (≥ down-after-milliseconds) + a successful
+  # election, so its presence is the proof a real failover happened (not delivery-never-broke).
+  echo "  [phase 1] waiting for sentinel promotion (down-after ${E2E_SENTINEL_DOWN_AFTER_MS}ms)…"
+  while [ "$(( $(date +%s) - start ))" -lt "$E2E_RECOVERY_DEADLINE_S" ]; do
+    newmaster=$("$@" exec -T valkey-sentinel-1 valkey-cli -p 26379 SENTINEL get-master-addr-by-name mymaster 2>/dev/null | head -1)
+    if [ -n "$newmaster" ] && [ "$newmaster" != "$killed" ]; then
+      emit "promoted $newmaster $(( $(date +%s) - start ))"
+      promoted=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$promoted" = 1 ] || echo "    P2> (no promotion within ${E2E_RECOVERY_DEADLINE_S}s)"
+
+  # Phase 2 — probe broadcast delivery until it recovers through the promoted master (bounded).
+  # A probe that starts under the deadline runs to completion and emits its outcome before the
+  # loop re-checks — so a delivery is never discarded at the boundary (deadline-tie guarantee).
+  echo "  [phase 2] probing broadcast delivery through the promoted master…"
+  while [ "$(( $(date +%s) - start ))" -lt "$E2E_RECOVERY_DEADLINE_S" ]; do
+    # Stamp elapsed at CONFIRMATION (after the probe), not at probe start — the probe is a full
+    # `sukko test validate` run (~tens of seconds), so a start-stamp would undercount recovery
+    # latency by a whole probe and could false-pass the SC-004 headroom gate. Conservative: the
+    # recovery elapsed is when delivery was PROVEN working.
+    if e2e_run_battery "$token" "" "pubsub:public round-trip" pubsub >/dev/null 2>&1; then
+      emit "delivered $(( $(date +%s) - start ))"
+      break
+    fi
+    emit "nodelivery $(( $(date +%s) - start )) probe-failed"
+    sleep 1
+  done
+
+  # Durable evidence (the stack is torn down with -v): the sentinel's own failover event log.
+  echo "  [evidence] sentinel-1 failover events:"
+  "$@" logs valkey-sentinel-1 2>&1 | grep -iE '\+sdown|\+odown|\+switch-master|\+failover-state' | tail -8 | sed 's/^/    ev> /'
+  e2e_recovery_verdict "$killed" "$E2E_RECOVERY_DEADLINE_S" "$E2E_RECOVERY_HEADROOM_PCT" < "$stream"
+  rc=$?
+  rm -f "$stream"
+  return $rc
+}
