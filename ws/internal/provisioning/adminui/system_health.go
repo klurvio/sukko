@@ -36,9 +36,15 @@ func (c *systemHealthCache) set(d SystemHealthData) {
 	c.mu.Unlock()
 }
 
-// probeHealth makes a single HTTP GET to url with a timeout.
+// healthProbeClient is the dedicated HTTP client for downstream health probes.
+// A dedicated client (not http.DefaultClient) isolates probe connections from any
+// other in-process HTTP traffic and from tests that swap the global client; the
+// per-probe deadline comes from the context in probeHealth, so no Timeout is set here.
+var healthProbeClient = &http.Client{}
+
+// probeHealth makes a single HTTP GET to url via client with a timeout.
 // Returns "ok" (2xx), "degraded" (non-2xx), "unknown" (error), "unconfigured" (empty url).
-func probeHealth(ctx context.Context, url string) string {
+func probeHealth(ctx context.Context, client *http.Client, url string) string {
 	if url == "" {
 		return "unconfigured"
 	}
@@ -48,7 +54,7 @@ func probeHealth(ctx context.Context, url string) string {
 	if err != nil {
 		return "unknown"
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "unknown"
 	}

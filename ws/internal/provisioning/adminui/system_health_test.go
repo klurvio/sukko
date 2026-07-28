@@ -1,10 +1,26 @@
 package adminui
 
 import (
+	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
+
+// stubTransport is a hermetic http.RoundTripper returning a canned status or error
+// with no network I/O. probeHealth's classification (status/error → status string) is
+// pure; routing it through real kernel TCP (httptest.NewServer + a loopback dial) made
+// the test hostage to transient socket errors on loaded CI runners (§VIII determinism).
+type stubTransport struct {
+	status int
+	err    error
+}
+
+func (s stubTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &http.Response{StatusCode: s.status, Header: make(http.Header), Body: http.NoBody, Request: r}, nil
+}
 
 func TestWorstStatus(t *testing.T) {
 	t.Parallel()
@@ -38,63 +54,30 @@ func TestWorstStatus(t *testing.T) {
 func TestProbeHealth(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name       string
-		serverFunc func(w http.ResponseWriter, r *http.Request)
-		useEmpty   bool
-		want       string
+		name      string
+		transport stubTransport
+		url       string
+		want      string
 	}{
-		{
-			name: "2xx → ok",
-			serverFunc: func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			},
-			want: "ok",
-		},
-		{
-			name: "503 → degraded",
-			serverFunc: func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusServiceUnavailable)
-			},
-			want: "degraded",
-		},
-		{
-			name: "404 → degraded",
-			serverFunc: func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusNotFound)
-			},
-			want: "degraded",
-		},
-		{
-			name:     "empty url → unconfigured",
-			useEmpty: true,
-			want:     "unconfigured",
-		},
+		{"2xx → ok", stubTransport{status: http.StatusOK}, "http://ws-server/health", "ok"},
+		{"503 → degraded", stubTransport{status: http.StatusServiceUnavailable}, "http://ws-server/health", "degraded"},
+		{"404 → degraded", stubTransport{status: http.StatusNotFound}, "http://ws-server/health", "degraded"},
+		// Transport error (unreachable upstream) → unknown. Folds in the former
+		// TestProbeHealth_Unreachable without a real closed-socket dial (which itself flaked:
+		// a concurrent test could rebind the freed port, flipping "unknown" to "ok").
+		{"transport error → unknown", stubTransport{err: errors.New("connect: connection refused")}, "http://ws-server/health", "unknown"},
+		// Malformed URL → NewRequestWithContext fails → unknown (previously-untested branch).
+		{"invalid url → unknown", stubTransport{status: http.StatusOK}, "://bad-url", "unknown"},
+		{"empty url → unconfigured", stubTransport{}, "", "unconfigured"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			var url string
-			if !tt.useEmpty {
-				srv := httptest.NewServer(http.HandlerFunc(tt.serverFunc))
-				defer srv.Close()
-				url = srv.URL
-			}
-			got := probeHealth(t.Context(), url)
+			client := &http.Client{Transport: tt.transport}
+			got := probeHealth(t.Context(), client, tt.url)
 			if got != tt.want {
-				t.Errorf("probeHealth(%q) = %q, want %q", url, got, tt.want)
+				t.Errorf("probeHealth(%q) = %q, want %q", tt.url, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestProbeHealth_Unreachable(t *testing.T) {
-	t.Parallel()
-	// Use a server that is immediately closed to simulate unreachable upstream.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	url := srv.URL
-	srv.Close()
-	got := probeHealth(t.Context(), url)
-	if got != "unknown" {
-		t.Errorf("probeHealth(closed server) = %q, want %q", got, "unknown")
 	}
 }

@@ -444,11 +444,11 @@ func (h *Handler) systemHealth(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		defer logging.RecoverPanic(h.logger, "systemHealth:ws-server", nil)
-		ch <- probeResult{"ws-server", probeHealth(ctx, h.cfg.WSServerHealthURL)}
+		ch <- probeResult{"ws-server", probeHealth(ctx, healthProbeClient, h.cfg.WSServerHealthURL)}
 	})
 	wg.Go(func() {
 		defer logging.RecoverPanic(h.logger, "systemHealth:gateway", nil)
-		ch <- probeResult{"gateway", probeHealth(ctx, h.cfg.GatewayHealthURL)}
+		ch <- probeResult{"gateway", probeHealth(ctx, healthProbeClient, h.cfg.GatewayHealthURL)}
 	})
 	wg.Wait()
 	close(ch)
