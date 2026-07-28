@@ -403,6 +403,68 @@ tasks:
           # checks are fail-closed (no skip path — the suite fails hard if enforcement is absent), so require each.
           REQUIRE_PASS: "tenant-isolation:tenant A → only A receives;tenant-isolation:tenant B → only B receives;provisioning:routing cross-tenant mismatch;provisioning:routing edition gate;provisioning:rename bad json;provisioning:rename invalid slug;provisioning:rename reserved slug;provisioning:rename slug taken;provisioning:rename role gate;provisioning:rename happy path;provisioning:rename hold period;provisioning:test-access computed patterns;provisioning:test-access no rules;provisioning:test-access bad json;api-key:api key accepted;api-key:public channel subscribe;api-key:private channel denied;api-key:api key REST publish blocked;upgrade:api key initial connect;upgrade:public channel subscribe;upgrade:auth upgrade;upgrade:expired JWT rejected;ratelimit:rate limit enforcement;ratelimit:connection survives rate limit;ratelimit:publish recovers after refill"
 
+  cell:community-direct-sentinel:
+    desc: >-
+      Grid cell — Community/direct against a Valkey SENTINEL HA topology (1 master + 1 replica +
+      3 sentinels, quorum 2). P1 proves the Sentinel client wiring delivers the Valkey-broadcast
+      battery (channels/pubsub/ordering/reconnect) with positive controls that Sentinel mode is
+      genuinely engaged (mode=sentinel log + SENTINEL-role assertion); P2 (severable) hard-kills
+      the master and asserts broadcast delivery recovers after replica promotion, within a
+      derived deadline. §XVIII DEVIATION (non-silent, per NFR-004): this cell contains the grid's
+      FIRST destructive/chaos step (the mid-run master SIGKILL in the P2 block). Justified —
+      HA failover is untestable without inducing failover; isolated in the severable P2 cmd block
+      so it cannot destabilize the always-on P1 verdict.
+    vars:
+      # Three-file layer: base + direct backend + the sentinel topology (behind --profile sentinel).
+      COMPOSE: 'docker compose -f docker-compose.yml -f taskfiles/e2e/direct.override.yml -f taskfiles/e2e/valkey-sentinel.override.yml --profile sentinel'
+      ADMIN_KEY_FILE: taskfiles/e2e/.admin.key
+      PROVISIONING_URL: http://localhost:18080
+      TESTER_TOKEN: sukko-dev-token
+      # Valkey-broadcast-dependent suites already green on cell:community-direct (overlap makes
+      # "same battery, both topologies" a real apples-to-apples claim).
+      SUITES: "channels pubsub ordering reconnect"
+      # REQUIRE_PASS names the Valkey-ROUND-TRIP delivery checks only (NOT the bus-independent
+      # `reconnect:reconnect`) — a mode-selection regression that broke the bus would red these.
+      # Names are lockstep-checked against the tester deliveryCheck() sources by
+      # sentinel_guard_test.sh. ALLOWED_SKIPS is empty (these suites skip nothing on Community/direct).
+      REQUIRE_PASS: "pubsub:public round-trip;pubsub:user-scoped isolation;pubsub:group-scoped vip;pubsub:group-scoped traders;reconnect:pre-disconnect delivery;reconnect:post-reconnect delivery"
+    cmds:
+      # Teardown runs even on failure (Taskfile defer, LIFO). `down -v` clears the sentinel/replica
+      # volumes so no promoted-master state leaks into a back-to-back re-run (SC-005).
+      - defer: "{{.COMPOSE}} down -v"
+      - defer: rm -f {{.ADMIN_KEY_FILE}}
+      # (1) Fail fast: the pure-verdict fixtures must pass before we spend minutes booting.
+      - bash taskfiles/e2e/sentinel_guard_test.sh
+      # (2) Boot the Community/direct stack against the sentinel topology. The sentinel healthchecks
+      # (master-addr known) + --wait make a mode-misconfigured boot fail HERE (Scenario 1 AC-1).
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Cell: community/direct + Valkey Sentinel topology ==="
+        e2e_boot_cell community direct "$(pwd)/{{.ADMIN_KEY_FILE}}" +1y {{.COMPOSE}}
+      # (3) Readiness + the two anti-vacuous positive controls: the sentinels report mymaster
+      # (FR-002a), and the broadcast bus logged mode=sentinel (Scenario 1 AC-1a).
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Readiness gate (community) + sentinel positive controls ==="
+        e2e_readiness_gate {{.PROVISIONING_URL}} community false
+        e2e_sentinel_ready {{.COMPOSE}}
+        e2e_sentinel_mode_log_check {{.COMPOSE}}
+      # (4) P1 verdict: the Valkey-broadcast battery, fail-closed, through a sentinel-resolved master.
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== Run validate battery (P1) ==="
+        e2e_run_battery {{.TESTER_TOKEN}} "" "{{.REQUIRE_PASS}}" {{.SUITES}}
+      # (5) P2 (SEVERABLE — its own block, trimmable without touching 1-4): kill the master, wait
+      # for sentinel promotion, assert broadcast delivery recovers within the derived deadline.
+      - |
+        set -eu
+        . taskfiles/e2e/stack.sh
+        echo "=== P2 failover chaos: kill master, assert recovery (SC-004) ==="
+        e2e_sentinel_failover {{.TESTER_TOKEN}} {{.COMPOSE}}
+
   cell:pro-kafka:
     desc: "Grid cell — Pro/kafka (full green set; proves suites are backend-agnostic; + token-revocation on the push-smoke cadence)."
     cmds:

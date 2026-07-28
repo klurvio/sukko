@@ -198,6 +198,7 @@ Named anchor cells wrap the runner with their suite sets:
 | `enterprise-kafka` | Enterprise | kafka | positive | `channels pubsub ordering reconnect sse auth rest-publish` |
 | `community-kafka-refused` | Community (no license) | kafka | **negative** | boot MUST fail: ws-server exits non-zero with the kafka edition-gate error |
 | `expired-direct` | Pro, expired (`-1d`) → Community | direct | degradation | gate `edition=community`+`expired=true`; suite `edition-limits` |
+| `community-direct-sentinel` | Community (no license) | direct (Valkey **Sentinel** topology) | positive + chaos (P2) | `channels pubsub ordering reconnect` + sentinel positive controls; P2 kills the master and asserts recovery (§2.20) |
 
 Every edition×backend combination is accounted for: covered by a positive cell,
 negative-tested (`community-kafka-refused` — `MESSAGE_BACKEND=kafka` is Pro-gated, so a
@@ -273,7 +274,8 @@ unlimited Enterprise path, so it cannot live in the shared verdict).
 **CI cadence:** a **push to `main`** runs the **smoke cells** — `community-direct` +
 `pro-kafka` (one positive cell per backend) + the cheap `community-kafka-refused` negative
 cell — as the `e2e-grid` matrix; the **nightly schedule** and **manual
-`workflow_dispatch`** run the **full grid** (all seven cells). The cell list is computed by
+`workflow_dispatch`** run the **full grid** (all eight cells, including
+`community-direct-sentinel`). The cell list is computed by
 the `e2e-grid-setup` job — later specs add cells by editing that list plus a named cell
 task. The `e2e-guard-fixtures` job runs the anti-vacuous guard fixture tests (no Docker,
 ~2s) first, so a regressed guard fails fast before any stack boots. The `kafka-ingest` job
@@ -838,6 +840,56 @@ Suite: webhooks  Status: pass
   webhooks/degraded/degraded-status     pass
   webhooks/degraded/delivery-count      pass
 ```
+
+### 2.20 Sentinel HA cell (`community-direct-sentinel`)
+
+The only grid cell that boots Valkey in **Sentinel HA topology** instead of a single instance —
+1 master + 1 promotable replica + 3 sentinels (quorum 2). It is the first (and only) e2e
+exercise of the platform's Sentinel client path (`platform.UseValkeySentinel`), which every
+other cell leaves untested (they all boot a lone Valkey → the direct branch). Community/direct
+is the cheapest stack that drives the Valkey broadcast bus; `MESSAGE_BACKEND=direct` selects only
+the ingestion path (no Kafka), it does NOT bypass Valkey.
+
+**Topology & knobs** — added by `taskfiles/e2e/valkey-sentinel.override.yml` (layered third,
+behind `--profile sentinel`), which does NOT redefine the base `valkey` service (reused as the
+initial master + SIGKILL target). Pinned sentinel directives (mirrored as `E2E_SENTINEL_*`
+constants in `stack.sh`, lockstep-checked): `down-after-milliseconds 5000`, `failover-timeout
+10000`, quorum 2. Every booted client is pointed at the **sentinel** endpoints (port `26379`, not
+the data port `6379`) via `VALKEY_ADDRS`; `VALKEY_MASTER_NAME` stays at its Go default `mymaster`.
+
+**P1 — battery + positive controls.** Runs `channels pubsub ordering reconnect` (overlapping
+`community-direct`, so "same battery, both topologies" is apples-to-apples), fail-closed with
+`REQUIRE_PASS` naming the six Valkey-**round-trip** delivery checks (never the bus-independent
+`reconnect:reconnect`). Two anti-vacuous positive controls prevent a green run from silently using
+the already-covered direct path: (1) the broadcast bus logged `mode=sentinel`; (2) a `SENTINEL
+master mymaster` query returns a genuine sentinel record (not a data-node reply). Three data-node
+addresses that merely satisfy `len(addrs)>1` cannot green the cell.
+
+**P2 — failover chaos (severable).** Hard-kills the master (`docker kill -s SIGKILL`), waits for
+the sentinels to promote the replica, then asserts broadcast delivery recovers via a bounded poll
+(`sukko test validate --suite pubsub` re-run per attempt) on a deadline **derived** from the
+pinned knobs (`down-after + failover-timeout + safety-margin`, seconds). Recovery is credited only
+after a confirmed promotion to a master **≠** the killed one (guards against an old-master
+false-positive), and must land within a headroom fraction of the deadline (SC-004; a flake-tight
+recovery reds the cell). This is the grid's only destructive step — isolated in a severable cmd
+block (§XVIII documented deviation). **Cold-recovery scope:** the probe proves the server-side bus
+re-resolved the promoted master; asserting survival of a subscription *held across* the kill
+(`resubscribeAll()`) would need a persistent-subscriber probe the harness lacks — a documented gap.
+
+**Covered vs gap sentinel client sites** (verified against the cell's compose service list): only
+the **broadcast bus** (`ws/internal/server/broadcast/valkey.go`) boots and is Sentinel-wired here.
+The other wired sites are gaps on this Community/direct stack — history writer (Pro + off by
+default), connection registry + admin listener (Pro-gated `WS_CONNECTIONS_REGISTRY_ENABLED`),
+provisioning connections reader / webhook clients (Pro-gated, no client built), and webhook-worker
+(not booted). A future Pro sentinel cell could cover them; note two of those sites (the provisioning
+connections reader and webhook-worker) select Sentinel via a divergent `MasterName != ""` guard
+rather than the shared `UseValkeySentinel` — a §XVIII follow-up to resolve when they are first
+booted under Sentinel.
+
+**Fixtures.** The three pure verdicts (recovery, sentinel-role, mode-log) are unit-tested with
+canned streams in `taskfiles/e2e/sentinel_guard_test.sh` (no Docker), wired into the
+`e2e-guard-fixtures` CI job. The cell runs on the nightly/dispatch **full grid** only (it adds 4
+containers — 1 replica + 3 sentinels — plus a chaos phase), not the push smoke set.
 
 ## 3. Load / Stress / Soak Testing
 

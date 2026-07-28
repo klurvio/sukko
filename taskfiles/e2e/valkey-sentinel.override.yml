@@ -1,0 +1,114 @@
+# E2E-only Compose override for the Valkey SENTINEL HA topology.
+#
+# Layered THIRD, on top of the direct backend override, by the Sentinel grid cell:
+#   docker compose -f docker-compose.yml \
+#     -f taskfiles/e2e/direct.override.yml \
+#     -f taskfiles/e2e/valkey-sentinel.override.yml --profile sentinel
+#
+# It does NOT redefine the base `valkey` service — that service is reused as the initial
+# MASTER (and the SIGKILL target for the P2 failover phase; it has no restart policy, so a
+# kill leaves it dead). This override adds one promotable replica and three sentinels
+# (quorum 2), and re-points every booted Valkey client at the SENTINEL endpoints (port
+# 26379, NOT the data port 6379) so `platform.UseValkeySentinel` selects the Sentinel
+# branch. See specs/.../valkey-sentinel-e2e and ws/docs/e2e-testing.md ("Sentinel HA cell").
+#
+# All add-on services carry `profiles: ["sentinel"]` so they start ONLY for this cell
+# (`--profile sentinel`), never for `sukko up` or the other grid cells.
+
+# Shared definition for the three sentinel processes (§XV: define once, reference thrice).
+x-valkey-sentinel: &valkey-sentinel
+  image: valkey/valkey:7.2-alpine
+  profiles: ["sentinel"]
+  configs:
+    - source: valkey-sentinel-conf
+      target: /etc/sentinel/sentinel.conf
+  # valkey-sentinel rewrites its config at runtime (it appends discovered replica/known-sentinel
+  # state), but a compose `configs:` mount is read-only — so copy it to a writable path first.
+  command: sh -c 'cp /etc/sentinel/sentinel.conf /data/sentinel.conf && exec valkey-sentinel /data/sentinel.conf'
+  depends_on:
+    valkey:
+      condition: service_healthy
+    valkey-replica:
+      condition: service_healthy
+  healthcheck:
+    # Healthy only once the sentinel actually knows the master (non-empty master-addr) — this
+    # gates the boot so ws-server does not start against a not-yet-formed sentinel quorum
+    # (Edge case "Boot ordering"). `$$` escapes compose's `$` interpolation.
+    test: ["CMD-SHELL", "test -n \"$$(valkey-cli -p 26379 sentinel get-master-addr-by-name mymaster)\""]
+    interval: 5s
+    timeout: 3s
+    retries: 10
+
+services:
+  # ─── Replica of the base `valkey` master ──────────────────────────────
+  valkey-replica:
+    image: valkey/valkey:7.2-alpine
+    profiles: ["sentinel"]
+    # Announce by compose-DNS hostname so the master lists the replica (and sentinels announce
+    # it) by a name the app containers can resolve after promotion.
+    command: valkey-server --replicaof valkey 6379 --replica-announce-ip valkey-replica
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── Three sentinels (quorum 2) monitoring `mymaster` ─────────────────
+  valkey-sentinel-1:
+    <<: *valkey-sentinel
+  valkey-sentinel-2:
+    <<: *valkey-sentinel
+  valkey-sentinel-3:
+    <<: *valkey-sentinel
+
+  # ─── Re-point booted Valkey clients at the sentinels ──────────────────
+  ws-server:
+    # List syntax REQUIRED for this service (bare-key MESSAGE_BACKEND passthrough — see base
+    # docker-compose.yml). The override's VALKEY_ADDRS replaces the base `valkey:6379` value
+    # (compose merges environment by variable name, last file wins).
+    environment:
+      # Sentinel endpoints on the sentinel port (26379), NOT the data port. len(addrs)>1 plus the
+      # Go-default VALKEY_MASTER_NAME=mymaster makes UseValkeySentinel pick the Sentinel branch.
+      # VALKEY_MASTER_NAME is deliberately NOT set here — its Go envDefault is already "mymaster"
+      # (§I forbids duplicating a Go default).
+      - VALKEY_ADDRS=valkey-sentinel-1:26379,valkey-sentinel-2:26379,valkey-sentinel-3:26379
+    depends_on:
+      # Deterministic cold boot: ws-server waits until all three sentinels know the master.
+      valkey-sentinel-1:
+        condition: service_healthy
+      valkey-sentinel-2:
+        condition: service_healthy
+      valkey-sentinel-3:
+        condition: service_healthy
+
+  provisioning:
+    # Map syntax (matches the base provisioning service). On Community, provisioning builds NO
+    # Valkey client (the connections/webhook clients are Pro-gated), so this is mode-correct
+    # hygiene — no booted service is pointed at a data node (Scenario 2 AC-1) — not exercised
+    # coverage. PROVISIONING_VALKEY_MASTER_NAME has NO Go default, so it MUST be set here.
+    environment:
+      PROVISIONING_VALKEY_ADDRS: "valkey-sentinel-1:26379,valkey-sentinel-2:26379,valkey-sentinel-3:26379"
+      PROVISIONING_VALKEY_MASTER_NAME: "mymaster"
+
+# Inlined sentinel.conf shared by all three sentinels. Every timing/structural knob is pinned
+# and commented (FR-007 §I); the ms values MUST equal the E2E_SENTINEL_* constants in stack.sh
+# (lockstep-checked by sentinel_guard_test.sh).
+configs:
+  valkey-sentinel-conf:
+    content: |
+      port 26379
+      # Use compose service hostnames (not IPs) for the master and announcements, so the
+      # promoted replica is reachable by name from the app containers after failover.
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+      # Monitor the base `valkey` service as master; quorum = 2 of 3 sentinels must agree it is down.
+      sentinel monitor mymaster valkey 6379 2
+      # Declare the master down after 5000ms unreachable (== E2E_SENTINEL_DOWN_AFTER_MS).
+      sentinel down-after-milliseconds mymaster 5000
+      # Abort/retry a failover that has not completed within 10000ms (== E2E_SENTINEL_FAILOVER_TIMEOUT_MS).
+      sentinel failover-timeout mymaster 10000
+      # Reconfigure one replica at a time during failover (only one replica here anyway).
+      sentinel parallel-syncs mymaster 1
