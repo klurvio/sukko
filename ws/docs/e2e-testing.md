@@ -885,11 +885,22 @@ is the cheapest stack that drives the Valkey broadcast bus; `MESSAGE_BACKEND=dir
 the ingestion path (no Kafka), it does NOT bypass Valkey.
 
 **Topology & knobs** — added by `taskfiles/e2e/valkey-sentinel.override.yml` (layered third,
-behind `--profile sentinel`), which does NOT redefine the base `valkey` service (reused as the
-initial master + SIGKILL target). Pinned sentinel directives (mirrored as `E2E_SENTINEL_*`
-constants in `stack.sh`, lockstep-checked): `down-after-milliseconds 5000`, `failover-timeout
-10000`, quorum 2. Every booted client is pointed at the **sentinel** endpoints (port `26379`, not
-the data port `6379`) via `VALKEY_ADDRS`; `VALKEY_MASTER_NAME` stays at its Go default `mymaster`.
+behind `--profile sentinel`). The topology is **all-IP** on a dedicated pinned network
+(`sentinel-net`, subnet `10.89.0.0/24`): the base `valkey` service is extended with a static
+`ipv4_address` (the master, `10.89.0.10`, reused as the SIGKILL target), the replica is pinned to
+`10.89.0.11`, and the sentinels **monitor the master by IP** with `resolve-hostnames no` /
+`announce-hostnames no`. This is load-bearing: a pinned IP survives the master container's death,
+whereas a Docker hostname stops resolving the instant the container dies — which stalls `+odown`
+and trips the sentinels into TILT, so failover never happens (the regression this cell guards).
+Pinned directives mirrored as `E2E_SENTINEL_*` constants in `stack.sh` (lockstep-checked):
+`down-after-milliseconds 5000`, `failover-timeout 10000`, quorum 2, plus `E2E_SENTINEL_MASTER_IP`
+(`10.89.0.10`), `E2E_SENTINEL_REPLICA_IP` (`10.89.0.11`), and `E2E_SENTINEL_SUBNET_CIDR`
+(`10.89.0.0/24`). **Network homing:** the Valkey cluster (master, replica, 3 sentinels) lives on
+`sentinel-net` only (an all-IP island; sentinels are single-homed for a deterministic
+self-announce IP); `ws-server` is the sole **dual-homed** bridge (`default` for the app mesh
++ `sentinel-net` to reach the sentinels and the promoted master). Every booted client is pointed at
+the **sentinel** endpoints (port `26379`, not the data port `6379`) via `VALKEY_ADDRS`;
+`VALKEY_MASTER_NAME` stays at its Go default `mymaster`.
 
 **P1 — battery + positive controls.** Runs `channels pubsub ordering reconnect` (overlapping
 `community-direct`, so "same battery, both topologies" is apples-to-apples), fail-closed with
@@ -905,7 +916,10 @@ the sentinels to promote the replica, then asserts broadcast delivery recovers v
 pinned knobs (`down-after + failover-timeout + safety-margin`, seconds). Recovery is credited only
 after a confirmed promotion to a master **≠** the killed one (guards against an old-master
 false-positive), and must land within a headroom fraction of the deadline (SC-004; a flake-tight
-recovery reds the cell). This is the grid's only destructive step — isolated in a severable cmd
+recovery reds the cell). Beyond the delivery gate, a **cause-level log verdict** fails the cell
+unless the sentinel log shows `+switch-master mymaster` with **zero** `Failed to resolve hostname`
+and **zero** `+tilt` lines — so a regression back to hostname-monitoring is caught even if a
+promotion happens to squeak through inside the deadline. This is the grid's only destructive step — isolated in a severable cmd
 block (§XVIII documented deviation). **Cold-recovery scope:** the probe proves the server-side bus
 re-resolved the promoted master; asserting survival of a subscription *held across* the kill
 (`resubscribeAll()`) would need a persistent-subscriber probe the harness lacks — a documented gap.

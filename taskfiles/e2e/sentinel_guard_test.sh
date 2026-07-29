@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Fixture tests for the PURE sentinel-cell verdicts in taskfiles/e2e/stack.sh — the three
-# decisions the cell:community-direct-sentinel runner delegates to (recovery, sentinel-role,
-# mode=sentinel log), plus two lockstep greps. All run OUTSIDE the Docker stack (canned streams
+# Fixture tests for the PURE sentinel-cell verdicts in taskfiles/e2e/stack.sh — the six decisions
+# the cell:community-direct-sentinel runner delegates to (recovery, sentinel-role, mode=sentinel
+# log, failover-log, master-addr reduce, lockstep compare), plus the name-lockstep check. All run OUTSIDE the Docker stack (canned streams
 # on stdin, exit-code assertions), so the verdict contracts have durable regression coverage,
 # not a one-time manual proof (Constitution §VIII / NFR-005).
 #
@@ -16,8 +16,14 @@
 #     an exit-0 case.
 #   • e2e_sentinel_role_verdict — genuine sentinel master record vs empty / data-node reply.
 #   • e2e_sentinel_mode_log_verdict — present / absent / wrong-mode (direct) classifier.
-#   • Lockstep greps — (i) override sentinel knobs == stack.sh constants; (ii) the cell's
-#     REQUIRE_PASS uses <suite>:<value> where <value> is the tester's deliveryCheck() name arg.
+#   • e2e_sentinel_failover_log_verdict — +switch-master present AND zero +tilt AND zero
+#     resolve-failure; each negative fixture otherwise-passes and drifts ONE condition (FR-008).
+#   • e2e_master_addr_reduce — the two-line get-master-addr `ip\nport` reply → ip only (FR-009).
+#   • e2e_lockstep_verdict — pure value-in→exit-out compare; every pinned override literal (master
+#     IP ×2, replica IP ×2, subnet CIDR, resolve/announce-hostnames, timing knobs) match→0, plus a
+#     synthetic drift→1 per value-type proving the fail-closed side (FR-007 / SC-004).
+#   • Name-lockstep — the cell's REQUIRE_PASS uses <suite>:<value> where <value> is the tester's
+#     deliveryCheck() name arg.
 #
 # Run: bash taskfiles/e2e/sentinel_guard_test.sh   (wired into CI before the stack boots).
 set -uo pipefail
@@ -57,40 +63,44 @@ run_modelog() {
 }
 
 # ---------------------------------------------------------------------------
-# e2e_recovery_verdict (killed=valkey, deadline=90s, headroom=66% → limit=59s)
+# e2e_recovery_verdict (killed=$E2E_SENTINEL_MASTER_IP, deadline=90s, headroom=66% → limit=59s).
+# Streams use the LIVE address form the monitor-by-IP topology now emits: killed = the master's pinned
+# IP, promoted = the replica's pinned IP (FR-009), built from the stack.sh constants.
 # ---------------------------------------------------------------------------
 run_recovery 0 "recovery: delivered in headroom after promotion" \
-  valkey 90 66 "promoted valkey-replica 3
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "promoted $E2E_SENTINEL_REPLICA_IP 3
 delivered 10"
 run_recovery 0 "recovery: delivered is credited by PRESENCE after nodelivery ticks (signal-first)" \
-  valkey 90 66 "promoted valkey-replica 3
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "promoted $E2E_SENTINEL_REPLICA_IP 3
 nodelivery 20 probe-failed
 nodelivery 40 probe-failed
 delivered 50"
 run_recovery 1 "recovery: over-headroom delivery reds (SC-004 flake-tight)" \
-  valkey 90 66 "promoted valkey-replica 3
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "promoted $E2E_SENTINEL_REPLICA_IP 3
 delivered 75"
 run_recovery 1 "recovery: at/after deadline reds (> headroom)" \
-  valkey 90 66 "promoted valkey-replica 3
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "promoted $E2E_SENTINEL_REPLICA_IP 3
 delivered 95"
 run_recovery 1 "recovery: no promotion ever (deadline expired, no delivery)" \
-  valkey 90 66 "nodelivery 20 probe-failed
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "nodelivery 20 probe-failed
 nodelivery 40 probe-failed"
 run_recovery 1 "recovery: promotion present but never delivered" \
-  valkey 90 66 "promoted valkey-replica 3
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "promoted $E2E_SENTINEL_REPLICA_IP 3
 nodelivery 20 probe-failed
 nodelivery 60 probe-failed"
 run_recovery 1 "recovery: delivery BEFORE promotion → old-master false-positive not credited" \
-  valkey 90 66 "delivered 5
-promoted valkey-replica 10"
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "delivered 5
+promoted $E2E_SENTINEL_REPLICA_IP 10"
 run_recovery 1 "recovery: promoted master == killed master → not a real promotion" \
-  valkey 90 66 "promoted valkey 10
+  "$E2E_SENTINEL_MASTER_IP" 90 66 "promoted $E2E_SENTINEL_MASTER_IP 10
 delivered 20"
 
 # ---------------------------------------------------------------------------
 # e2e_sentinel_role_verdict — genuine sentinel record vs empty / data-node
 # ---------------------------------------------------------------------------
-VALID_MASTER=$'name\nmymaster\nip\n172.20.0.5\nport\n6379\nflags\nmaster\nnum-other-sentinels\n2\nquorum\n2'
+# ip is cosmetic for the role verdict (it checks name/flags/others/quorum), but keep it consistent
+# with the pinned topology instead of a stale literal. ($'…' does not interpolate, so concatenate.)
+VALID_MASTER=$'name\nmymaster\nip\n'"$E2E_SENTINEL_MASTER_IP"$'\nport\n6379\nflags\nmaster\nnum-other-sentinels\n2\nquorum\n2'
 run_role 0 "role: valid mymaster sentinel record passes" "$VALID_MASTER"
 run_role 1 "role: empty reply fails closed" ""
 run_role 1 "role: data-node error reply fails closed" "ERR unknown command 'SENTINEL'"
@@ -111,23 +121,92 @@ run_modelog 1 "mode-log: direct present even if sentinel also present fails (mix
 {"mode":"direct"}'
 
 # ---------------------------------------------------------------------------
-# Lockstep (i): the pinned sentinel knobs in the override MUST equal the stack.sh constants.
-# Extract each directive's numeric literal from the override and compare to the E2E_SENTINEL_*
-# value (anchored on the directive name, not a bare number — avoids false-positive matches).
+# e2e_sentinel_failover_log_verdict — +switch-master present AND zero +tilt AND zero resolve-failure
+# (FR-008). Each NEGATIVE fixture is otherwise-passing and drifts exactly ONE condition, so each of
+# the three gates is proven to fire independently (no over-determined green; discriminate on cause).
+# ---------------------------------------------------------------------------
+run_failover_log() {
+  local want="$1" name="$2" logs="$3" got
+  printf '%s\n' "$logs" | e2e_sentinel_failover_log_verdict >/dev/null 2>&1
+  got=$?
+  if [ "$got" -eq "$want" ]; then echo "ok   - $name (exit $got)"; else
+    echo "FAIL - $name: exit $got, want $want"; fails=$((fails + 1)); fi
+}
+run_failover_log 0 "failover-log: +switch-master present, no tilt, no resolve-fail → pass" \
+  "1:X +sdown master mymaster $E2E_SENTINEL_MASTER_IP 6379
+1:X +odown master mymaster $E2E_SENTINEL_MASTER_IP 6379
+1:X +switch-master mymaster $E2E_SENTINEL_MASTER_IP 6379 $E2E_SENTINEL_REPLICA_IP 6379"
+run_failover_log 1 "failover-log: +tilt present → fail (switch-master otherwise present)" \
+  "1:X +switch-master mymaster $E2E_SENTINEL_MASTER_IP 6379 $E2E_SENTINEL_REPLICA_IP 6379
+1:X +tilt #tilt mode entered"
+run_failover_log 1 "failover-log: 'Failed to resolve hostname' present → fail (switch-master otherwise present)" \
+  "1:X +switch-master mymaster $E2E_SENTINEL_MASTER_IP 6379 $E2E_SENTINEL_REPLICA_IP 6379
+1:X # Failed to resolve hostname 'valkey'"
+run_failover_log 1 "failover-log: no +switch-master → fail (never promoted)" \
+  "1:X +sdown master mymaster $E2E_SENTINEL_MASTER_IP 6379
+1:X +odown master mymaster $E2E_SENTINEL_MASTER_IP 6379"
+
+# ---------------------------------------------------------------------------
+# e2e_master_addr_reduce — the two-line `ip\nport` get-master-addr reply reduces to the ip only (FR-009).
+# ---------------------------------------------------------------------------
+run_addr_reduce() {
+  local want="$1" name="$2" reply="$3" got
+  got=$(printf '%s\n' "$reply" | e2e_master_addr_reduce)
+  if [ "$got" = "$want" ]; then echo "ok   - $name (got '$got')"; else
+    echo "FAIL - $name: got '$got', want '$want'"; fails=$((fails + 1)); fi
+}
+run_addr_reduce "$E2E_SENTINEL_REPLICA_IP" "addr-reduce: two-line ip/port reply → ip only" \
+  "$E2E_SENTINEL_REPLICA_IP
+6379"
+
+# ---------------------------------------------------------------------------
+# Lockstep (i): every pinned value in the override MUST equal its stack.sh source-of-truth constant.
+# The compare is the PURE e2e_lockstep_verdict (value-in → exit-out), so BOTH the match side (the real
+# extracted value) AND the drift side (a synthetic wrong value) are fixture-tested — a counter
+# side-effect would only ever run against the in-sync file, never proving the fail-closed path.
+# Extraction (grep from the override) is glue; the compare is the tested pure verdict. (FR-007 / SC-004)
 # ---------------------------------------------------------------------------
 OVERRIDE="$REPO/taskfiles/e2e/valkey-sentinel.override.yml"
-check_knob() {
-  local directive="$1" want="$2" got
-  got=$(grep -E "sentinel ${directive} mymaster " "$OVERRIDE" | grep -oE '[0-9]+$' | head -1)
-  if [ "$got" = "$want" ]; then
-    echo "ok   - lockstep: override ${directive}=${got} == stack.sh ${want}"
-  else
-    echo "FAIL - lockstep: override ${directive}='${got}' != stack.sh '${want}' (knob drift)"
-    fails=$((fails + 1))
-  fi
+
+# run_lockstep <want_exit> <name> <want> <got>
+run_lockstep() {
+  local want_exit="$1" name="$2" want="$3" got="$4" rc
+  e2e_lockstep_verdict "$want" "$got" >/dev/null 2>&1; rc=$?
+  if [ "$rc" -eq "$want_exit" ]; then echo "ok   - $name (exit $rc)"; else
+    echo "FAIL - $name: exit $rc, want $want_exit"; fails=$((fails + 1)); fi
 }
-check_knob "down-after-milliseconds" "$E2E_SENTINEL_DOWN_AFTER_MS"
-check_knob "failover-timeout" "$E2E_SENTINEL_FAILOVER_TIMEOUT_MS"
+
+# --- Extraction glue: pull each pinned literal out of the override (master block precedes replica) ---
+ip_re='([0-9]{1,3}\.){3}[0-9]{1,3}'
+xt_mon_ip=$(grep -E 'sentinel monitor mymaster ' "$OVERRIDE" | awk '{print $4}' | head -1)
+xt_replicaof_ip=$(grep -oE "replicaof ${ip_re}" "$OVERRIDE" | grep -oE "$ip_re" | head -1)
+xt_announce_ip=$(grep -oE "replica-announce-ip ${ip_re}" "$OVERRIDE" | grep -oE "$ip_re" | head -1)
+xt_ipv4_master=$(grep -oE "ipv4_address: ${ip_re}" "$OVERRIDE" | grep -oE "$ip_re" | sed -n 1p)
+xt_ipv4_replica=$(grep -oE "ipv4_address: ${ip_re}" "$OVERRIDE" | grep -oE "$ip_re" | sed -n 2p)
+xt_subnet=$(grep -oE "subnet: ${ip_re}/[0-9]+" "$OVERRIDE" | grep -oE "${ip_re}/[0-9]+" | head -1)
+xt_resolve=$(grep -oE 'resolve-hostnames (no|yes)' "$OVERRIDE" | awk '{print $2}' | head -1)
+xt_announce=$(grep -oE 'announce-hostnames (no|yes)' "$OVERRIDE" | awk '{print $2}' | head -1)
+xt_down_after=$(grep -E 'down-after-milliseconds mymaster ' "$OVERRIDE" | awk '{print $NF}' | head -1)
+xt_failover=$(grep -E 'failover-timeout mymaster ' "$OVERRIDE" | awk '{print $NF}' | head -1)
+
+# Match side — the real override value equals its constant (exit 0):
+run_lockstep 0 "lockstep: master IP (sentinel monitor directive)" "$E2E_SENTINEL_MASTER_IP"  "$xt_mon_ip"
+run_lockstep 0 "lockstep: master IP (--replicaof)"                 "$E2E_SENTINEL_MASTER_IP"  "$xt_replicaof_ip"
+run_lockstep 0 "lockstep: master IP (ipv4_address)"                "$E2E_SENTINEL_MASTER_IP"  "$xt_ipv4_master"
+run_lockstep 0 "lockstep: replica IP (--replica-announce-ip)"      "$E2E_SENTINEL_REPLICA_IP" "$xt_announce_ip"
+run_lockstep 0 "lockstep: replica IP (ipv4_address)"               "$E2E_SENTINEL_REPLICA_IP" "$xt_ipv4_replica"
+run_lockstep 0 "lockstep: subnet CIDR (ipam)"                      "$E2E_SENTINEL_SUBNET_CIDR" "$xt_subnet"
+run_lockstep 0 "lockstep: resolve-hostnames no"                    "no"                        "$xt_resolve"
+run_lockstep 0 "lockstep: announce-hostnames no"                   "no"                        "$xt_announce"
+run_lockstep 0 "lockstep: down-after-milliseconds knob"            "$E2E_SENTINEL_DOWN_AFTER_MS" "$xt_down_after"
+run_lockstep 0 "lockstep: failover-timeout knob"                   "$E2E_SENTINEL_FAILOVER_TIMEOUT_MS" "$xt_failover"
+
+# Drift side — a synthetic wrong value MUST red (exit 1), proving the fail-closed path per value-type:
+run_lockstep 1 "lockstep drift: master IP mismatch reds"    "$E2E_SENTINEL_MASTER_IP"   "10.89.0.99"
+run_lockstep 1 "lockstep drift: replica IP mismatch reds"   "$E2E_SENTINEL_REPLICA_IP"  "10.89.0.99"
+run_lockstep 1 "lockstep drift: subnet mismatch reds"       "$E2E_SENTINEL_SUBNET_CIDR" "10.99.0.0/24"
+run_lockstep 1 "lockstep drift: resolve-hostnames yes reds" "no"                        "yes"
+run_lockstep 1 "lockstep drift: knob mismatch reds"         "$E2E_SENTINEL_DOWN_AFTER_MS" "9999"
 
 # ---------------------------------------------------------------------------
 # Lockstep (ii): the cell's REQUIRE_PASS uses <suite>:<value> where <value> is the exact

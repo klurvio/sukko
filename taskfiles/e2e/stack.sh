@@ -362,7 +362,7 @@ push_validate_guard() {
 # ===========================================================================
 # Sentinel cell helpers (cell:community-direct-sentinel)
 # ---------------------------------------------------------------------------
-# Named constants + three PURE verdicts (stdin/args only — no clock, no docker,
+# Named constants + six PURE verdicts (stdin/args only — no clock, no docker,
 # fixture-covered by sentinel_guard_test.sh) + thin glue (docker/clock I/O around
 # the verdicts, untested by design — NFR-005). See
 # specs/.../valkey-sentinel-e2e/{spec,plan}.md.
@@ -372,6 +372,15 @@ push_validate_guard() {
 # taskfiles/e2e/valkey-sentinel.override.yml (lockstep-checked by sentinel_guard_test.sh).
 E2E_SENTINEL_DOWN_AFTER_MS=5000
 E2E_SENTINEL_FAILOVER_TIMEOUT_MS=10000
+# Pinned static IPs + subnet for the all-IP sentinel topology. Monitoring the master by a STABLE IP
+# (not a container hostname) is what lets failover survive the master's death: a Docker DNS name stops
+# resolving the instant the container dies, which stalls +odown and trips TILT (the bug this fixes).
+# These are the lockstep source of truth — mirrored, non-interpolable, into valkey-sentinel.override.yml
+# and asserted equal by sentinel_guard_test.sh. 10.89.0.0/24 sits OUTSIDE Docker's default address
+# pools (172.16.0.0/12 + 192.168.0.0/16) so the user-defined subnet cannot "Pool overlaps" at boot.
+E2E_SENTINEL_MASTER_IP=10.89.0.10       # master `ipv4_address` + `sentinel monitor mymaster <IP>` in the override
+E2E_SENTINEL_REPLICA_IP=10.89.0.11      # replica `ipv4_address` + `--replica-announce-ip <IP>` in the override
+E2E_SENTINEL_SUBNET_CIDR=10.89.0.0/24   # the `sentinel-net` ipam subnet in the override
 # Safety margin (seconds): the delivery probe is a whole `sukko test validate --suite pubsub`
 # run (~tens of seconds), so allow room for up to two probe re-runs plus compose-network
 # jitter on top of the sentinel detection+failover window.
@@ -488,6 +497,55 @@ e2e_recovery_verdict() {
   return 1
 }
 
+# e2e_sentinel_failover_log_verdict   (sentinel event logs on STDIN)
+# PURE. Returns 0 IFF the failover completed cleanly: a `+switch-master mymaster` line is present AND
+# there are ZERO `Failed to resolve hostname` lines AND ZERO `+tilt` transitions. The latter two are
+# the fingerprint of the hostname-resolution regression this cell guards (a dead master's DNS name
+# fails to resolve → sentinels stall and enter TILT → no failover). Fails closed with a specific
+# reason so a regression that still limps to a promotion inside the deadline (possible on one runner's
+# DNS timing — NFR-001) is caught by CAUSE, not just outcome. Backs FR-008 / SC-002.
+e2e_sentinel_failover_log_verdict() {
+  local logs
+  logs=$(cat)
+  if printf '%s\n' "$logs" | grep -qF 'Failed to resolve hostname'; then
+    echo "    failover-log: 'Failed to resolve hostname' present — hostname re-resolution regressed (monitor-by-IP broken)" >&2
+    return 1
+  fi
+  if printf '%s\n' "$logs" | grep -qF '+tilt'; then
+    echo "    failover-log: sentinel entered +tilt — failover was suspended (resolution thrash / clock skew)" >&2
+    return 1
+  fi
+  if printf '%s\n' "$logs" | grep -qF '+switch-master mymaster'; then
+    echo "    failover-log: +switch-master mymaster present, no resolve failures, no tilt ✓"
+    return 0
+  fi
+  echo "    failover-log: no '+switch-master mymaster' line — sentinels never promoted a new master" >&2
+  return 1
+}
+
+# e2e_master_addr_reduce   (raw `SENTINEL get-master-addr-by-name` reply on STDIN)
+# PURE. The reply is two lines — `ip\nport` — so emit ONLY the ip (the first line). Extracting this
+# into a pure step (rather than an inline `head -1` in the glue) makes the ip/port split — the seam
+# between "the promoted replica IP" and the trailing data port "6379" — fixture-testable. Backs FR-009.
+e2e_master_addr_reduce() {
+  head -1
+}
+
+# e2e_lockstep_verdict <want> <got>   (args only, no STDIN)
+# PURE value-in → exit-code-out compare: returns 0 IFF want == got, else 1 with a drift message. Used
+# by sentinel_guard_test.sh's lockstep checks so the FAIL side is fixture-testable (feed a drifted
+# `got`, assert exit 1) — unlike a counter-mutating side-effect, which only ever runs against the
+# in-sync file. Backs FR-007 / SC-004.
+e2e_lockstep_verdict() {
+  local want="$1" got="$2"
+  if [ "$got" = "$want" ]; then
+    echo "    lockstep: '$got' == '$want' ✓"
+    return 0
+  fi
+  echo "    lockstep: DRIFT — got '$got', want '$want'" >&2
+  return 1
+}
+
 # --- Thin glue (docker/clock I/O around the pure verdicts; untested by design — NFR-005) ---
 
 # e2e_sentinel_ready <compose…>
@@ -516,15 +574,18 @@ e2e_sentinel_mode_log_check() {
 # e2e_recovery_verdict judges AND echoed (`P2>`) so the CI log — the only surviving evidence after
 # `down -v` — shows the genuine failover timeline. Delivery probe reuses e2e_run_battery (§X;
 # NFR-006 tester-driver); cold-recovery instrument (a fresh pubsub round-trip proves the
-# server-side bus followed the sentinels to the promoted master).
+# server-side bus followed the sentinels to the promoted master). Fails closed if EITHER gate reds:
+# (1) e2e_recovery_verdict (credited post-promotion delivery within the SC-004 headroom) OR
+# (2) e2e_sentinel_failover_log_verdict (+switch-master with zero +tilt / zero resolve-failure — the
+# cause-level discriminator that catches a hostname-monitoring regression, FR-008 / SC-002).
 e2e_sentinel_failover() {
   local token="$1"; shift
-  local killed killed_cid newmaster stream start rc promoted=0
+  local killed killed_cid newmaster stream start promoted=0 sentinel_logs rc_recovery rc_log
   stream=$(mktemp)
   # emit: machine line → stream (for the verdict) AND human line → log (durable evidence).
   emit() { echo "$1" >> "$stream"; echo "    P2> $1"; }
 
-  killed=$("$@" exec -T valkey-sentinel-1 valkey-cli -p 26379 SENTINEL get-master-addr-by-name mymaster 2>/dev/null | head -1)
+  killed=$("$@" exec -T valkey-sentinel-1 valkey-cli -p 26379 SENTINEL get-master-addr-by-name mymaster 2>/dev/null | e2e_master_addr_reduce)
   killed_cid=$("$@" ps -q valkey)
   echo "  pre-kill master: ${killed:-<unknown>} (container ${killed_cid:-<none>})"
   echo "  SIGKILL the master container (valkey)…"
@@ -538,7 +599,7 @@ e2e_sentinel_failover() {
   # election, so its presence is the proof a real failover happened (not delivery-never-broke).
   echo "  [phase 1] waiting for sentinel promotion (down-after ${E2E_SENTINEL_DOWN_AFTER_MS}ms)…"
   while [ "$(( $(date +%s) - start ))" -lt "$E2E_RECOVERY_DEADLINE_S" ]; do
-    newmaster=$("$@" exec -T valkey-sentinel-1 valkey-cli -p 26379 SENTINEL get-master-addr-by-name mymaster 2>/dev/null | head -1)
+    newmaster=$("$@" exec -T valkey-sentinel-1 valkey-cli -p 26379 SENTINEL get-master-addr-by-name mymaster 2>/dev/null | e2e_master_addr_reduce)
     if [ -n "$newmaster" ] && [ "$newmaster" != "$killed" ]; then
       emit "promoted $newmaster $(( $(date +%s) - start ))"
       promoted=1
@@ -565,11 +626,27 @@ e2e_sentinel_failover() {
     sleep 1
   done
 
-  # Durable evidence (the stack is torn down with -v): the sentinel's own failover event log.
+  # Durable evidence (the stack is torn down with -v): the sentinel's own failover event log. Capture
+  # once, reuse for both the evidence display and the log verdict. `+tilt` / `Failed to resolve` are
+  # included in the shown events so a regression's fingerprint is visible in the CI log.
   echo "  [evidence] sentinel-1 failover events:"
-  "$@" logs valkey-sentinel-1 2>&1 | grep -iE '\+sdown|\+odown|\+switch-master|\+failover-state' | tail -8 | sed 's/^/    ev> /'
-  e2e_recovery_verdict "$killed" "$E2E_RECOVERY_DEADLINE_S" "$E2E_RECOVERY_HEADROOM_PCT" < "$stream"
-  rc=$?
+  sentinel_logs=$("$@" logs valkey-sentinel-1 2>&1)
+  printf '%s\n' "$sentinel_logs" | grep -iE '\+sdown|\+odown|\+switch-master|\+failover-state|\+tilt|Failed to resolve' | tail -12 | sed 's/^/    ev> /'
+
+  # TWO independent gates — BOTH must pass (fail closed if either reds):
+  #  (1) recovery: a credited post-promotion delivery within the SC-004 headroom (from the outcome stream).
+  #  (2) failover-log: the sentinels actually reached +switch-master with ZERO resolve-failures / ZERO
+  #      +tilt — the CAUSE-level discriminator that catches a hostname-monitoring regression even if a
+  #      promotion still squeaked through inside the deadline (FR-008 / SC-002).
+  # Capture BOTH verdicts without aborting under the live `set -e` cell shell — the file's
+  # errexit-safe idiom is `|| rc=$?` (cf. e2e_boot_cell / e2e_battery_verdict). This keeps both
+  # gates actually evaluated (so both diagnostics print even when one reds) and the cleanup reached,
+  # then combines — fail closed if EITHER the recovery OR the cause-level log verdict red.
+  rc_recovery=0
+  e2e_recovery_verdict "$killed" "$E2E_RECOVERY_DEADLINE_S" "$E2E_RECOVERY_HEADROOM_PCT" < "$stream" || rc_recovery=$?
+  rc_log=0
+  printf '%s\n' "$sentinel_logs" | e2e_sentinel_failover_log_verdict || rc_log=$?
   rm -f "$stream"
-  return $rc
+  [ "$rc_recovery" -eq 0 ] && [ "$rc_log" -eq 0 ] && return 0
+  return 1
 }
