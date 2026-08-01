@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -292,10 +293,40 @@ func TestProxy_ForceClose_DoubleClose_Idempotent(t *testing.T) {
 	t.Parallel()
 	cc, bc := &fakeConn{}, &fakeConn{}
 	p := newFakeConnProxy(cc, bc)
-	p.ForceClose(1008, CloseReasonTokenRevoked)
-	p.ForceClose(1008, CloseReasonTokenRevoked) // must not panic
+	p.ForceClose(1008, CloseReasonUserRevoked)  // first caller
+	p.ForceClose(1008, CloseReasonTokenRevoked) // second — must not panic, must NOT overwrite the reason
 	if cc.closeCount != 1 || bc.closeCount != 1 {
 		t.Errorf("closeOnce failed: client=%d backend=%d, want 1/1", cc.closeCount, bc.closeCount)
+	}
+	// First-reason-wins: the store lives inside closeOnce.Do, so the second (distinct) reason is dropped.
+	if got := p.ForceCloseReason(); got != CloseReasonUserRevoked {
+		t.Errorf("ForceCloseReason() = %q, want first reason %q (last-writer-wins bug)", got, CloseReasonUserRevoked)
+	}
+}
+
+// TestProxy_ForceClose_ConcurrentWithRun (NFR-002): a late fan-out ForceClose fires concurrently with
+// a normal Run teardown. Because the reason store lives inside the shared closeOnce.Do, this is
+// race-free by construction (no mutex/atomic on the getter). The getter is read ONLY after BOTH
+// goroutines join — never mid-flight. Run under -race.
+func TestProxy_ForceClose_ConcurrentWithRun(t *testing.T) {
+	t.Parallel()
+	p := newFakeConnProxy(&fakeConn{}, &fakeConn{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); p.Run(context.Background()) }()
+	go func() { defer wg.Done(); p.ForceClose(1008, CloseReasonTokenRevoked) }()
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run/ForceClose did not complete")
+	}
+	// Read AFTER both goroutines joined. Either Run's closeOnce won (reason "") or ForceClose's did
+	// ("token revoked") — both are valid; the point is no data race on the field.
+	if r := p.ForceCloseReason(); r != "" && r != CloseReasonTokenRevoked {
+		t.Errorf("ForceCloseReason() = %q, want \"\" or %q", r, CloseReasonTokenRevoked)
 	}
 }
 

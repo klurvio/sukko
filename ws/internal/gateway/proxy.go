@@ -33,6 +33,7 @@ type Proxy struct {
 	clientWriteMu sync.Mutex // protects all writes to clientConn
 	backendConn   net.Conn
 	closeOnce     sync.Once // guards net.Conn.Close() calls (double-close panics)
+	closeReason   string    // force-close reason; written ONLY inside closeOnce.Do (first-caller wins), read only after Run returns (ForceCloseReason)
 	logger        zerolog.Logger
 
 	messageTimeout time.Duration
@@ -926,9 +927,22 @@ func (p *Proxy) ForceClose(code int, reason string) {
 
 	p.sendCloseToClient(payload)
 	p.closeOnce.Do(func() {
+		// Store the reason INSIDE the Once so the first caller wins and the write is Once-ordered:
+		// the handler reads it after Run returns (Run also closes via this same closeOnce), and a
+		// late fan-out that is the second Do caller never runs this closure — race-free by
+		// construction (no atomic needed; cold path). See ForceCloseReason.
+		p.closeReason = reason
 		_ = p.clientConn.Close()
 		_ = p.backendConn.Close()
 	})
+}
+
+// ForceCloseReason returns the reason stored by a ForceClose, or "" if the connection was not
+// force-closed. Safe to read ONLY after Run has returned: Run's teardown calls the same closeOnce,
+// so sync.Once's happens-before orders any ForceClose store before Run returns, before this read.
+// Never read it mid-flight (that would race the Do-closure write).
+func (p *Proxy) ForceCloseReason() string {
+	return p.closeReason
 }
 
 // Transport returns TransportWS for WebSocket connections.
