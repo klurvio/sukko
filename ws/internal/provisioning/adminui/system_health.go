@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // systemHealthResult is the cached result of the last system health fan-out.
@@ -44,7 +46,7 @@ var healthProbeClient = &http.Client{}
 
 // probeHealth makes a single HTTP GET to url via client with a timeout.
 // Returns "ok" (2xx), "degraded" (non-2xx), "unknown" (error), "unconfigured" (empty url).
-func probeHealth(ctx context.Context, client *http.Client, url string) string {
+func probeHealth(ctx context.Context, logger zerolog.Logger, client *http.Client, url string) string {
 	if url == "" {
 		return "unconfigured"
 	}
@@ -52,10 +54,14 @@ func probeHealth(ctx context.Context, client *http.Client, url string) string {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
+		// Debug (not silent): surfaces WHY a probe returned "unknown" for CI/developer diagnosis
+		// (§III — an undiagnosable "unknown" is what made #224's flake hard to root-cause).
+		logger.Debug().Str("url", url).Err(err).Msg("admin health probe: request build failed")
 		return "unknown"
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		logger.Debug().Str("url", url).Err(err).Msg("admin health probe: transport error")
 		return "unknown"
 	}
 	_ = resp.Body.Close()

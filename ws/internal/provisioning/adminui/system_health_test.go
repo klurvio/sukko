@@ -1,9 +1,13 @@
 package adminui
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
 )
 
 // stubTransport is a hermetic http.RoundTripper returning a canned status or error
@@ -74,9 +78,46 @@ func TestProbeHealth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			client := &http.Client{Transport: tt.transport}
-			got := probeHealth(t.Context(), client, tt.url)
+			got := probeHealth(t.Context(), zerolog.Nop(), client, tt.url)
 			if got != tt.want {
 				t.Errorf("probeHealth(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestProbeHealth_LogsOnError asserts the error paths are no longer silent: a Debug line with the
+// url + err is emitted (§III), while a healthy probe stays quiet.
+func TestProbeHealth_LogsOnError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		transport stubTransport
+		url       string
+		wantLog   bool
+		wantMsg   string
+	}{
+		{"transport error logs", stubTransport{err: errors.New("connection refused")}, "http://ws-server/health", true, "transport error"},
+		{"invalid url logs", stubTransport{status: http.StatusOK}, "://bad-url", true, "request build failed"},
+		{"2xx does not log", stubTransport{status: http.StatusOK}, "http://ws-server/health", false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			logger := zerolog.New(&buf).Level(zerolog.DebugLevel)
+			client := &http.Client{Transport: tt.transport}
+			_ = probeHealth(t.Context(), logger, client, tt.url)
+			out := buf.String()
+			if tt.wantLog {
+				if !strings.Contains(out, tt.wantMsg) {
+					t.Errorf("log missing %q; got %s", tt.wantMsg, out)
+				}
+				if !strings.Contains(out, `"url":`) || !strings.Contains(out, `"error":`) {
+					t.Errorf("log missing url/error field; got %s", out)
+				}
+			} else if out != "" {
+				t.Errorf("expected no log on success, got %s", out)
 			}
 		})
 	}
