@@ -16,6 +16,7 @@ import (
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
 var revocationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -25,8 +26,6 @@ var revocationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 
 // Revocation type and Prometheus result label constants (Constitution §I).
 const (
-	revTypeUser    = "user"
-	revTypeToken   = "token"
 	revTypeUnknown = "unknown" // used in type label position when type is not yet known (early-exit paths)
 
 	revResultInvalidRequest = "invalid_request"
@@ -113,9 +112,9 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 
 	// Determine type and tenant (from URL path via RequireTenant middleware)
 	tenantSlug := chi.URLParam(r, "tenantSlug")
-	revType := revTypeUser
+	revType := provapi.RevocationTypeUser
 	if hasJTI {
-		revType = revTypeToken
+		revType = provapi.RevocationTypeToken
 	}
 
 	// Compute expiry — client may supply exp to shorten the lifetime, but cannot exceed maxRevocationLifetime.
@@ -150,7 +149,7 @@ func (h *RevocationHandler) HandleRevoke(w http.ResponseWriter, r *http.Request)
 	revocationTotal.WithLabelValues(revType, revResultSuccess).Inc()
 
 	logEvt := h.logger.Info().Str("type", revType).Str(logging.LogKeyTenantSlug, tenantSlug).Str("client_ip", clientIP)
-	if revType == revTypeUser {
+	if revType == provapi.RevocationTypeUser {
 		logEvt = logEvt.Str("sub", req.Sub)
 	} else {
 		logEvt = logEvt.Str("jti", req.JTI)

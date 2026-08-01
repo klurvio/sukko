@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/klurvio/sukko/internal/shared/logging"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
 // pruneInterval is the interval between automatic prune cycles.
@@ -20,7 +21,7 @@ const pruneInterval = 60 * time.Second
 // Entry represents a single token revocation.
 type Entry struct {
 	TenantID  string
-	Type      string // "user" or "token"
+	Type      string // provapi.RevocationTypeUser or provapi.RevocationTypeToken
 	Sub       string // non-empty for user revocation
 	JTI       string // non-empty for token revocation
 	RevokedAt int64  // Unix timestamp
@@ -29,7 +30,7 @@ type Entry struct {
 
 // key returns the map key for this entry.
 func (e *Entry) key() string {
-	if e.Type == "token" {
+	if e.Type == provapi.RevocationTypeToken {
 		return "jti:" + e.JTI
 	}
 	return "sub:" + e.TenantID + ":" + e.Sub
@@ -74,13 +75,13 @@ func (s *Store) Revoke(entry Entry) error {
 	if entry.TenantID == "" {
 		return errors.New("revocation: tenant_id is required")
 	}
-	if entry.Type != "user" && entry.Type != "token" {
+	if entry.Type != provapi.RevocationTypeUser && entry.Type != provapi.RevocationTypeToken {
 		return fmt.Errorf("revocation: type must be 'user' or 'token', got %q", entry.Type)
 	}
-	if entry.Type == "user" && entry.Sub == "" {
+	if entry.Type == provapi.RevocationTypeUser && entry.Sub == "" {
 		return errors.New("revocation: sub is required for user revocation")
 	}
-	if entry.Type == "token" && entry.JTI == "" {
+	if entry.Type == provapi.RevocationTypeToken && entry.JTI == "" {
 		return errors.New("revocation: jti is required for token revocation")
 	}
 
