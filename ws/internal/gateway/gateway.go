@@ -297,9 +297,13 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Record connection attempt and track disconnect reason for metrics
 	RecordConnection()
+	var proxy *Proxy // assigned once the connection is upgraded (below); stays nil on early returns
 	closeReason := CloseReasonNormal
 	defer func() {
-		RecordDisconnection(closeReason, time.Since(startTime))
+		// recordWSDisconnect maps a revocation force-close reason (if the conn was force-closed) to
+		// its snake_case close_reason label, else uses closeReason — so revocation closes are no
+		// longer mislabeled "normal" in the disconnect histogram (FR-003).
+		recordWSDisconnect(proxy, closeReason, startTime)
 	}()
 
 	// Authenticate request — shared across WebSocket, SSE, and REST publish handlers.
@@ -431,7 +435,7 @@ func (gw *Gateway) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Create and run proxy. Authorization is injected as closures so the WS
 	// proxy shares the exact same filter/check implementations as SSE, Web
 	// Push, and REST publish (§XVIII).
-	proxy := NewProxy(ProxyConfig{
+	proxy = NewProxy(ProxyConfig{
 		ClientConn:  clientConn,
 		BackendConn: backendConn,
 		Claims:      claims, // nil when API-key-only connection
@@ -716,7 +720,7 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 			Str("sub", sub).
 			Str(logging.LogKeyTenantSlug, entry.TenantID).
 			Str(labelTransport, transport).
-			Str(logFieldRevocationType, provapi.RevocationTypeToken).
+			Str(provapi.LogFieldRevocationType, provapi.RevocationTypeToken).
 			Str(logFieldDetection, DetectionFanOut).
 			Msg("connection force-disconnected: token revoked")
 		RecordTokenForceDisconnect(provapi.RevocationTypeToken, transport, DetectionFanOut)
@@ -736,7 +740,7 @@ func (gw *Gateway) HandleRevocation(entry provapi.RevocationEntry) {
 				Str("sub", sub).
 				Str(logging.LogKeyTenantSlug, entry.TenantID).
 				Str(labelTransport, transport).
-				Str(logFieldRevocationType, provapi.RevocationTypeUser).
+				Str(provapi.LogFieldRevocationType, provapi.RevocationTypeUser).
 				Str(logFieldDetection, DetectionFanOut).
 				Msg("connection force-disconnected: user revoked")
 			RecordTokenForceDisconnect(provapi.RevocationTypeUser, transport, DetectionFanOut)
@@ -778,7 +782,7 @@ func (gw *Gateway) recheckRevocationAfterRegister(conn Connection, tenantID stri
 		Str("sub", sub).
 		Str(logging.LogKeyTenantSlug, tenantID).
 		Str(labelTransport, transport).
-		Str(logFieldRevocationType, revType).
+		Str(provapi.LogFieldRevocationType, revType).
 		Str(logFieldDetection, DetectionPostRegister).
 		Msg("connection force-disconnected: revoked during registration window")
 	RecordTokenForceDisconnect(revType, transport, DetectionPostRegister)

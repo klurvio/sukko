@@ -19,13 +19,18 @@ import (
 )
 
 // Revocation type values carried in RevocationEntry.Type and the
-// WatchTokenRevocations proto's TokenRevocation.Type. Shared by every consumer of the
-// revocation stream (gateway fan-out + post-register re-check, and — via a follow-up —
-// provisioning/push producers) so the concept is defined once (§I).
+// WatchTokenRevocations proto's TokenRevocation.Type. Shared by every producer and consumer of the
+// revocation stream (provisioning producer + validator, gateway fan-out + post-register re-check,
+// push consumer) so the concept is defined once (§I).
 const (
 	RevocationTypeToken = "token" // revoke a single token by jti
 	RevocationTypeUser  = "user"  // revoke all of a subject's tokens issued before RevokedAt
 )
+
+// LogFieldRevocationType is the structured-log field KEY for the revocation type, shared by the
+// gateway and push so the field name is defined once (§I/§XVIII). Distinct from the Prometheus
+// metric label key "type" (kept service-local for dashboard/alert compatibility — do NOT unify).
+const LogFieldRevocationType = "revocation_type"
 
 // RevocationEntry represents a single revocation received from the stream.
 type RevocationEntry struct {

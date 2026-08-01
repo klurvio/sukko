@@ -62,6 +62,11 @@ const (
 	CloseReasonInvalidAPIKey        = "invalid_api_key"
 	CloseReasonAPIKeyTenantMismatch = "api_key_tenant_mismatch" //nolint:gosec // close reason label, not a credential
 	CloseReasonTenantUnavailable    = "tenant_unavailable"      // tenant-config projection cold; API-key slug resolution failed (retryable)
+	// Revocation force-disconnect close_reason LABEL values — snake_case to match this vocabulary,
+	// deliberately distinct from the space-containing WS close-frame text (CloseReasonTokenRevoked /
+	// CloseReasonUserRevoked). resolveCloseReason maps frame text → these for the disconnect histogram.
+	CloseReasonTokenRevokedLabel = "token_revoked"
+	CloseReasonUserRevokedLabel  = "user_revoked"
 )
 
 // Token-revocation force-disconnect strings, shared by the fan-out (HandleRevocation) and
@@ -81,15 +86,15 @@ const (
 )
 
 // Metric label / log field key names for the token-revocation force-disconnect signal.
-// The metric label "type" and the log field "revocation_type" are different keys for the
-// same concept: the metric label name is PRESERVED for dashboard/alert compatibility
-// (do not rename it to match the log field).
+// The metric label "type" (below) and the log field key `provapi.LogFieldRevocationType`
+// ("revocation_type") are DIFFERENT keys for the same concept: the metric label name is
+// PRESERVED here for dashboard/alert compatibility (do not rename it to match the log field, and
+// do not fold it into the shared provapi log-field const).
 const (
-	labelRevocationType    = "type"
-	labelTransport         = "transport"
-	labelDetection         = "detection"
-	logFieldRevocationType = "revocation_type"
-	logFieldDetection      = "detection"
+	labelRevocationType = "type"
+	labelTransport      = "transport"
+	labelDetection      = "detection"
+	logFieldDetection   = "detection"
 )
 
 // Prometheus metrics for the gateway service.

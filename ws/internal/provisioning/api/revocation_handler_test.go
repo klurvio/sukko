@@ -14,6 +14,7 @@ import (
 
 	"github.com/klurvio/sukko/internal/provisioning/eventbus"
 	"github.com/klurvio/sukko/internal/provisioning/revocation"
+	"github.com/klurvio/sukko/internal/shared/provapi"
 )
 
 func newTestRevocationHandler() (*RevocationHandler, *chi.Mux) {
@@ -44,8 +45,8 @@ func TestHandleRevoke_ByJTI(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Type != revTypeToken {
-		t.Errorf("type = %q, want %q", resp.Type, revTypeToken)
+	if resp.Type != provapi.RevocationTypeToken {
+		t.Errorf("type = %q, want %q", resp.Type, provapi.RevocationTypeToken)
 	}
 	if resp.TenantID != "acme" {
 		t.Errorf("tenant_id = %q, want %q", resp.TenantID, "acme")
@@ -68,8 +69,8 @@ func TestHandleRevoke_BySub(t *testing.T) {
 
 	var resp revocationResponse
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp.Type != revTypeUser {
-		t.Errorf("type = %q, want %q", resp.Type, revTypeUser)
+	if resp.Type != provapi.RevocationTypeUser {
+		t.Errorf("type = %q, want %q", resp.Type, provapi.RevocationTypeUser)
 	}
 }
 
