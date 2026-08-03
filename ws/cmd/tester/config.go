@@ -27,8 +27,8 @@ type TesterConfig struct {
 	GatewayURL                     string `env:"GATEWAY_URL" envDefault:"ws://localhost:3000"`        // WebSocket URL of the gateway that test connections will target.
 	ProvisioningURL                string `env:"PROVISIONING_URL" envDefault:"http://localhost:8080"` // HTTP base URL of the provisioning service used to create test tenants and API keys.
 
-	// License reload suite — Ed25519 private key for signing test license keys
-	SigningKeyFile string `env:"TESTER_SIGNING_KEY_FILE" envDefault:""` // Path to Ed25519 private key file for signing license tokens in the license-reload test suite. Leave empty when not running license tests.
+	// License reload suite — PEM PKCS#8 ECDSA P-256 private key for signing test license keys
+	SigningKeyFile string `env:"TESTER_SIGNING_KEY_FILE" envDefault:""` // Path to PEM PKCS#8 ECDSA P-256 private key file for signing license tokens in the license-reload test suite. Leave empty when not running license tests.
 
 	// Admin keypair for remote mode (required when targeting a deployed provisioning service).
 	// When unset, the tester generates an ephemeral keypair per test run (local dev mode only).

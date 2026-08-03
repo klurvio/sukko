@@ -17,7 +17,7 @@ func (m *Manager) Reload(key string) error {
 	m.reloadMu.Lock()
 	defer m.reloadMu.Unlock()
 
-	// 1. Parse and verify (Ed25519 signature check)
+	// 1. Parse and verify (ECDSA P-256 signature check)
 	claims, err := ParseAndVerify(key)
 	if err != nil {
 		return fmt.Errorf("reload: %w", err)

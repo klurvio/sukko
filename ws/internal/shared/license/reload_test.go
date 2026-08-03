@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// reloadTestPriv is the test Ed25519 private key shared across reload tests.
+// reloadTestPriv is the test ECDSA P-256 private key shared across reload tests.
 // Tests in this file MUST NOT use t.Parallel() since they call SetPublicKeyForTesting.
 var reloadTestPriv, reloadTestPub = GenerateTestKeyPair()
 

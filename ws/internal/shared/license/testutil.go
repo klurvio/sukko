@@ -1,31 +1,67 @@
 package license
 
 import (
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"math/big"
 )
 
-// GenerateTestKeyPair creates an Ed25519 key pair for testing.
+// GenerateTestKeyPair creates an ECDSA P-256 key pair for testing.
 // Panics on failure — test-only, never used in production.
-func GenerateTestKeyPair() (ed25519.PrivateKey, ed25519.PublicKey) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+func GenerateTestKeyPair() (*ecdsa.PrivateKey, *ecdsa.PublicKey) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		panic("license: generate test key pair: " + err.Error())
 	}
-	return priv, pub
+	return priv, &priv.PublicKey
 }
 
 // SignTestLicense creates a signed license key string for testing.
-// Format: base64url(json_claims).base64url(signature)
-func SignTestLicense(claims Claims, privateKey ed25519.PrivateKey) string {
+// Format: base64url(json_claims).base64url(signature), where the signature is
+// ECDSA P-256 over SHA-256 of the payload, emitted as 64-byte raw r||s. This
+// exercises the identical DER→r||s conversion the License Service's signer uses.
+func SignTestLicense(claims Claims, privateKey *ecdsa.PrivateKey) string {
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		panic("license: marshal test claims: " + err.Error())
 	}
-	signature := ed25519.Sign(privateKey, payload)
-	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(signature)
+	digest := sha256.Sum256(payload)
+	der, err := ecdsa.SignASN1(rand.Reader, privateKey, digest[:])
+	if err != nil {
+		panic("license: sign test claims: " + err.Error())
+	}
+	rawSig, err := derToRawSignature(der)
+	if err != nil {
+		panic("license: convert test signature: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(rawSig)
+}
+
+// ecdsaDERSig is the ASN.1 structure ecdsa.SignASN1 and GCP KMS both produce.
+type ecdsaDERSig struct {
+	R, S *big.Int
+}
+
+// derToRawSignature converts a DER-encoded ECDSA signature into the fixed
+// 64-byte big-endian r||s form the validator verifies. Short r/s values (a
+// leading zero byte, ~1-in-128 of signatures) are left-zero-padded to 32 bytes
+// by big.Int.FillBytes. This mirrors the License Service's DERToRawSignature
+// byte-for-byte (Constitution XI) so both repos share one conversion.
+func derToRawSignature(der []byte) ([]byte, error) {
+	var sig ecdsaDERSig
+	if _, err := asn1.Unmarshal(der, &sig); err != nil {
+		return nil, fmt.Errorf("asn1 unmarshal signature: %w", err)
+	}
+	raw := make([]byte, rawSigLen)
+	sig.R.FillBytes(raw[:p256ScalarLen]) // left-zero-padded to exactly 32 bytes
+	sig.S.FillBytes(raw[p256ScalarLen:])
+	return raw, nil
 }
 
 // SetPublicKeyForTesting replaces the package-level publicKey for test isolation.
@@ -34,6 +70,6 @@ func SignTestLicense(claims Claims, privateKey ed25519.PrivateKey) string {
 //
 // Tests that call this MUST NOT use t.Parallel() since they share the
 // package-level publicKey variable (Constitution VIII).
-func SetPublicKeyForTesting(key ed25519.PublicKey) {
+func SetPublicKeyForTesting(key *ecdsa.PublicKey) {
 	publicKey = key
 }

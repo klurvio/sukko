@@ -1,6 +1,14 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -196,6 +204,67 @@ func TestValidateRequired(t *testing.T) {
 			err := validateRequired(tt.key, tt.edition, tt.org, tt.expires)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateRequired() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestLoadPrivateKey pins FR-009: loadPrivateKey accepts a P-256 PKCS#8 PEM and
+// rejects — with a clear error, never a panic — a well-formed PKCS#8 PEM of the wrong
+// type (Ed25519, P-384) or a non-PEM file, so gentoken never signs with a wrong curve.
+func TestLoadPrivateKey(t *testing.T) {
+	t.Parallel()
+
+	writePEM := func(t *testing.T, typ string, der []byte) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "key.pem")
+		if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der}), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	pkcs8 := func(t *testing.T, key any) []byte {
+		t.Helper()
+		der, err := x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return der
+	}
+
+	p256, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, edPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{"valid P-256", writePEM(t, "PRIVATE KEY", pkcs8(t, p256)), false},
+		{"P-384 wrong curve", writePEM(t, "PRIVATE KEY", pkcs8(t, p384)), true},
+		{"Ed25519 wrong type", writePEM(t, "PRIVATE KEY", pkcs8(t, edPriv)), true},
+		{"not PEM", func() string {
+			p := filepath.Join(t.TempDir(), "x.pem")
+			_ = os.WriteFile(p, []byte("not a pem"), 0o600)
+			return p
+		}(), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := loadPrivateKey(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("loadPrivateKey() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

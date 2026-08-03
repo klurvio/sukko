@@ -1011,7 +1011,7 @@ paths:
               properties:
                 key:
                   type: string
-                  description: Signed license key (base64url payload + Ed25519 signature)
+                  description: Signed license key (base64url payload + ECDSA P-256 signature)
             example:
               key: "eyJlZGl0aW9uIjoicHJvIiwib3JnIjoiQWNtZSJ9.signature..."
       responses:
@@ -1046,7 +1046,7 @@ paths:
                 $ref: "#/components/schemas/Error"
               examples:
                 invalidSignature:
-                  value: { code: "INVALID_SIGNATURE", message: "Ed25519 signature verification failed" }
+                  value: { code: "INVALID_SIGNATURE", message: "license signature verification failed" }
                 keyExpired:
                   value: { code: "KEY_EXPIRED", message: "pushed key is already expired" }
                 invalidFormat:

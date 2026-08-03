@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	testerauth "github.com/klurvio/sukko/cmd/tester/auth"
 	"github.com/klurvio/sukko/cmd/tester/runner"
 	"github.com/klurvio/sukko/internal/shared/httputil"
 	"github.com/rs/zerolog"
@@ -99,7 +100,7 @@ type startTestRequest struct {
 	RampRate    int          `json:"ramp_rate,omitempty"`
 	Suite       string       `json:"suite,omitempty"`
 	TenantID    string       `json:"tenant_id,omitempty"`
-	SigningKey  string       `json:"signing_key,omitempty"`  // base64.StdEncoding Ed25519 private key for license-reload suite
+	SigningKey  string       `json:"signing_key,omitempty"`  // PEM PKCS#8 ECDSA P-256 private key (raw text, NOT base64) for license-reload suite
 	AdminKey    string       `json:"admin_key,omitempty"`    // base64.StdEncoding Ed25519 private key for per-request admin auth
 	AdminKeyID  string       `json:"admin_key_id,omitempty"` // kid for admin_key JWT; falls back to server AdminKeyID when omitted
 	Context     *TestContext `json:"context,omitempty"`
@@ -223,21 +224,22 @@ func (h *handlers) startTest(w http.ResponseWriter, r *http.Request) {
 	}
 	testID := id.String()[:testIDLength]
 
-	// Decode signing key if provided (for license-reload suite)
+	// Signing key for the license-reload suite (§XVIII deliberate divergence from admin_key):
+	// signing_key carries the PEM (PKCS#8 ECDSA P-256) text DIRECTLY — it is NOT base64-encoded.
+	// admin_key below stays base64.StdEncoding Ed25519. The two credentials use different
+	// algorithms and wire encodings (license signing is ECDSA P-256; admin-JWT signing is
+	// Ed25519) and MUST NOT be conflated. The raw PEM is passed through unchanged; the
+	// authoritative parse happens downstream in newLicenseKeyGeneratorFromBytes. We parse
+	// here as a boundary check (§II) so a malformed key fails fast with a clear error.
 	var signingKeyBytes []byte
 	if req.SigningKey != "" {
-		decoded, err := base64.StdEncoding.DecodeString(req.SigningKey)
-		if err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidSignKey, "signing_key must be valid base64 (base64.StdEncoding)")
-			return
-		}
-		if len(decoded) != ed25519.PrivateKeySize {
+		if _, err := testerauth.ParseECDSAP256PrivateKeyPEM([]byte(req.SigningKey)); err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, errCodeInvalidSignKey,
-				fmt.Sprintf("signing key must be %d bytes (Ed25519 private key), got %d", ed25519.PrivateKeySize, len(decoded)))
+				"signing_key must be a PEM PKCS#8 ECDSA P-256 private key")
 			return
 		}
 		h.logger.Info().Msg("signing key provided via API")
-		signingKeyBytes = decoded
+		signingKeyBytes = []byte(req.SigningKey)
 	}
 
 	// admin_key_id without admin_key is a caller error — reject immediately.

@@ -17,7 +17,10 @@
 # var owns it (§I single-source).
 e2e_mint_license() {
   local edition="$1" org="$2" expiry="$3"
-  if [ ! -f "ws/internal/shared/license/keys/sukko.dev.key" ]; then
+  # Regenerate when EITHER the private key OR the public key is missing: the
+  # sukko_e2e build embeds sukko.dev.pub, so a stale sukko.dev.key without the
+  # matching .pub would fail the //go:embed at build time (FR-017 / T037).
+  if [ ! -f "ws/internal/shared/license/keys/sukko.dev.key" ] || [ ! -f "ws/internal/shared/license/keys/sukko.dev.pub" ]; then
     (cd ws && go run ./internal/shared/license/genkeys) >&2
   fi
   (cd ws && go run ./internal/shared/license/gentoken \

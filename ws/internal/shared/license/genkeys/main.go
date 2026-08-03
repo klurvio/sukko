@@ -1,9 +1,17 @@
-// Command genkeys generates an Ed25519 key pair for Sukko license signing.
-// The public key is embedded in the Sukko binary; the private key is used
-// only by the License Service.
+// Command genkeys generates an ECDSA P-256 key pair for the Sukko license DEV/E2E
+// signer. It writes the public key to keys/sukko.dev.pub (PKIX PEM) and the private
+// key to keys/sukko.dev.key (PKCS#8 PEM) — the same encodings the License Service's
+// local signer and golden vectors use (Constitution XI / XVIII).
 //
-// This is a standalone CLI tool, not a production service. It uses fmt for
-// output instead of zerolog (no service context).
+// It deliberately does NOT write keys/sukko.pub: that path holds the committed
+// production/placeholder key the validator embeds by default, and an e2e run invokes
+// genkeys before building from source — writing there would clobber the committed key
+// (FR-017). The e2e build embeds keys/sukko.dev.pub via the `sukko_e2e` build tag.
+// Production signs via a non-exportable GCP Cloud KMS key whose public key replaces
+// the committed keys/sukko.pub through the DK-1 cross-repo PR, never via genkeys.
+//
+// This is a standalone CLI tool, not a production service. It uses fmt for output
+// instead of zerolog (no service context).
 //
 // Usage: go run ./internal/shared/license/genkeys
 //
@@ -11,33 +19,59 @@
 package main
 
 import (
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
+// keysDir is the license package's key directory, relative to the ws/ module root
+// (the directory `go run ./internal/shared/license/genkeys` is invoked from).
+const keysDir = "internal/shared/license/keys"
+
 func main() {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	pubPath, privPath, err := run(keysDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "generate key pair: %v\n", err)
+		fmt.Fprintf(os.Stderr, "genkeys: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Printf("Public key:  %s (ECDSA P-256, PKIX PEM)\n", pubPath)
+	fmt.Printf("Private key: %s (ECDSA P-256, PKCS#8 PEM)\n", privPath)
+	fmt.Println("IMPORTANT: The dev keys (sukko.dev.*) are gitignored. Keep the private key safe.")
+}
 
-	pubPath := "internal/shared/license/keys/sukko.pub"
-	privPath := "internal/shared/license/keys/sukko.dev.key"
-
-	if err := os.WriteFile(pubPath, pub, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "write public key: %v\n", err)
-		os.Exit(1)
+// run generates a P-256 keypair and writes the dev public/private keys into dir,
+// returning their paths. Split out from main so it is unit-testable (never writes
+// sukko.pub).
+func run(dir string) (pubPath, privPath string, err error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", fmt.Errorf("generate key pair: %w", err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		return "", "", fmt.Errorf("marshal public key: %w", err)
+	}
+	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return "", "", fmt.Errorf("marshal private key: %w", err)
 	}
 
-	if err := os.WriteFile(privPath, priv, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "write private key: %v\n", err)
-		os.Exit(1)
-	}
+	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
 
-	fmt.Printf("Public key:  %s (%d bytes)\n", pubPath, len(pub))
-	fmt.Printf("Private key: %s (%d bytes)\n", privPath, len(priv))
-	fmt.Println("IMPORTANT: The private key (*.key) is gitignored. Keep it safe.")
+	pubPath = filepath.Join(dir, "sukko.dev.pub")
+	privPath = filepath.Join(dir, "sukko.dev.key")
+
+	if err := os.WriteFile(pubPath, pubPEM, 0o600); err != nil {
+		return "", "", fmt.Errorf("write public key: %w", err)
+	}
+	if err := os.WriteFile(privPath, privPEM, 0o600); err != nil {
+		return "", "", fmt.Errorf("write private key: %w", err)
+	}
+	return pubPath, privPath, nil
 }

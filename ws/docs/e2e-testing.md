@@ -53,6 +53,19 @@ To verify your key file is the right format:
 wc -c ~/.sukko/admin.key   # should print exactly 64
 ```
 
+**`TESTER_SIGNING_KEY_FILE`** (license-reload suite) expects a **PEM PKCS#8 ECDSA
+P-256 private key** — a *different* format from `TESTER_ADMIN_KEY_FILE` above (which
+stays raw 64-byte Ed25519 for admin JWT). The tester signs test license tokens with
+this key; the running services validate them against the matching embedded public
+key (build the images with `GO_BUILD_TAGS=sukko_e2e` so the dev public key is
+embedded, per FR-017). The tester API's `signing_key` request field carries the same
+PEM **text directly** — file content equals API content, not base64. Generate one with
+`go run ./internal/shared/license/genkeys` (writes `sukko.dev.key`), or with OpenSSL:
+```bash
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out signing.key
+head -1 signing.key   # should print: -----BEGIN PRIVATE KEY-----
+```
+
 ### 1.3 Testing the Kafka ingestion pipeline
 
 There are two distinct ways the pipeline gets exercised — pick by what you want to test.
@@ -135,6 +148,7 @@ It runs as the `e2e-push-validate` job of the `CI` workflow (`workflow_dispatch`
 | `TESTER_PUSH_RECEIVER_PORT` | `8095` | no | Listen port of the tester's mock WebPush receiver. |
 | `TESTER_AUTH_TOKEN` | — | production | Token for tester HTTP API auth |
 | `TESTER_ADMIN_KEY_FILE` | — | provisioning/tenant-isolation/token-revocation suites | Raw 64-byte Ed25519 admin private key |
+| `TESTER_SIGNING_KEY_FILE` | — | license-reload suite | PEM PKCS#8 ECDSA P-256 private key for signing test license tokens (see §1.2). Different format from the admin key. |
 | `TESTER_ADMIN_KEY_ID` | `bootstrap-0` | when admin key file is set | Key ID registered in provisioning |
 | `TESTER_JWT_LIFETIME` | `15m` | no | JWT lifetime issued by tester |
 | `TESTER_JWT_REFRESH_BEFORE` | `2m` | no | Auth refresh trigger threshold |
