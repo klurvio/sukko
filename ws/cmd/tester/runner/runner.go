@@ -96,8 +96,8 @@ type TestConfig struct {
 	GatewayMetricsURL      string        `json:"gateway_metrics_url,omitempty"`
 	GatewayMetricsInterval time.Duration `json:"-"` // never serialized — config-level only
 	RevocationsPerCycle    int           `json:"revocations_per_cycle,omitzero"`
-	SigningKeyFile         string        `json:"signing_key_file,omitempty"` // Ed25519 private key path (env var fallback)
-	SigningKeyBytes        []byte        `json:"-"`                          // Ed25519 private key bytes (API passthrough, never serialized)
+	SigningKeyFile         string        `json:"signing_key_file,omitempty"` // PEM PKCS#8 ECDSA P-256 private key path (env var fallback)
+	SigningKeyBytes        []byte        `json:"-"`                          // PEM PKCS#8 ECDSA P-256 private key bytes (API passthrough, never serialized)
 	AdminKeyBytes          []byte        `json:"-"`                          // Ed25519 private key bytes from per-request admin_key (never serialized)
 	AdminKeyID             string        `json:"-"`                          // effective kid for per-request key (overridden by admin_key_id body field)
 	Context                *TestContext  `json:"context,omitzero"`

@@ -2,10 +2,14 @@ package api
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -268,16 +272,40 @@ func TestStartTest_AllTypes(t *testing.T) {
 	}
 }
 
-func TestStartTest_SigningKey_Valid(t *testing.T) {
-	t.Parallel()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+// signingKeyP256PEM returns a valid P-256 PKCS#8 PEM as a JSON-safe single-line
+// string (newlines escaped) so it can be embedded in a JSON request body.
+func signingKeyP256PEM(t *testing.T) string {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		t.Fatalf("generate key: %v", err)
+		t.Fatalf("generate P-256 key: %v", err)
 	}
-	encoded := base64.StdEncoding.EncodeToString(priv)
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshal PKCS#8: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+}
+
+// jsonString marshals s into a JSON string literal (quotes + escaping) so raw
+// PEM text (with newlines) can be embedded safely in a request body.
+func jsonString(t *testing.T, s string) string {
+	t.Helper()
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal json string: %v", err)
+	}
+	return string(b)
+}
+
+// TestStartTest_SigningKey_ValidPEM proves signing_key is consumed as raw PEM:
+// a valid P-256 PKCS#8 PEM string is accepted (201).
+func TestStartTest_SigningKey_ValidPEM(t *testing.T) {
+	t.Parallel()
+	pemStr := signingKeyP256PEM(t)
 
 	handler, r := newTestRouter()
-	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct — value is inside a raw JSON template, %q would double-escape
+	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":%s}`, jsonString(t, pemStr))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
@@ -295,34 +323,49 @@ func TestStartTest_SigningKey_Valid(t *testing.T) {
 	r.Wait()
 }
 
-func TestStartTest_SigningKey_InvalidBase64(t *testing.T) {
+// TestStartTest_SigningKey_NotPEM asserts a non-PEM value is rejected with the
+// new PEM-parse error code and message.
+func TestStartTest_SigningKey_NotPEM(t *testing.T) {
 	t.Parallel()
 	handler, _ := newTestRouter()
-	body := `{"type":"validate","suite":"license-reload","signing_key":"not-valid-base64!!!"}`
+	body := `{"type":"validate","suite":"license-reload","signing_key":"not-a-pem-key"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["code"] != errCodeInvalidSignKey {
+		t.Errorf("code = %v, want %s", resp["code"], errCodeInvalidSignKey)
 	}
 }
 
-func TestStartTest_SigningKey_WrongSize(t *testing.T) {
+// TestStartTest_SigningKey_Base64OfPEMRejected proves the base64-decode step is
+// gone: base64-encoding a valid PEM (the OLD wire format) is now rejected,
+// because the field is parsed as raw PEM text.
+func TestStartTest_SigningKey_Base64OfPEMRejected(t *testing.T) {
 	t.Parallel()
-	wrongKey := make([]byte, 32) // should be 64
-	encoded := base64.StdEncoding.EncodeToString(wrongKey)
+	pemStr := signingKeyP256PEM(t)
+	base64OfPEM := base64.StdEncoding.EncodeToString([]byte(pemStr))
 
 	handler, _ := newTestRouter()
-	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":"%s"}`, encoded) //nolint:gocritic // sprintfQuotedString: %s is correct — value is inside a raw JSON template, %q would double-escape
+	body := fmt.Sprintf(`{"type":"validate","suite":"license-reload","signing_key":%s}`, jsonString(t, base64OfPEM))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tests", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer test-auth")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+		t.Fatalf("status = %d, want %d (base64-of-PEM must be rejected)", w.Code, http.StatusBadRequest)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["code"] != errCodeInvalidSignKey {
+		t.Errorf("code = %v, want %s", resp["code"], errCodeInvalidSignKey)
 	}
 }
 

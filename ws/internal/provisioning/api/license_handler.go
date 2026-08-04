@@ -57,7 +57,7 @@ type editionChangeRejectedResponse struct {
 }
 
 // LicenseHandler handles POST /api/v1/license for license hot-reload.
-// Admin auth + Ed25519 signature — defense in depth.
+// Admin auth + ECDSA P-256 license signature — defense in depth.
 type LicenseHandler struct {
 	manager      *license.Manager
 	licenseRepo  provisioning.LicenseStateStore
@@ -150,7 +150,7 @@ type licenseReloadResponse struct {
 }
 
 // HandleReload handles POST /api/v1/license.
-// Admin auth + Ed25519 signature — defense in depth.
+// Admin auth + ECDSA P-256 license signature — defense in depth.
 // Rate-limited per IP. Replay-protected via iat.
 func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 	// Rate limiting
@@ -219,7 +219,7 @@ func (h *LicenseHandler) HandleReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reload Manager (validates Ed25519 signature, checks iat replay, atomic swap)
+	// Reload Manager (validates ECDSA P-256 signature, checks iat replay, atomic swap)
 	if err := h.manager.Reload(req.Key); err != nil {
 		h.handleReloadError(w, err, clientIP, adminSub, adminKID)
 		return
@@ -295,7 +295,7 @@ func (h *LicenseHandler) handleReloadError(w http.ResponseWriter, err error, cli
 		h.logger.Warn().Err(err).
 			Bool("audit", true).Str("admin_sub", adminSub).Str("admin_kid", adminKID).
 			Str("client_ip", clientIP).Msg("invalid license signature")
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_SIGNATURE", "Ed25519 signature verification failed")
+		httputil.WriteError(w, http.StatusBadRequest, "INVALID_SIGNATURE", "license signature verification failed")
 
 	case errors.Is(err, license.ErrLicenseInvalidFormat):
 		licenseReloadTotal.WithLabelValues(reloadInvalidFormat).Inc()

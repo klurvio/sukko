@@ -17,10 +17,23 @@ version: "3"
 
 vars:
   DEV_KEY_PATH: ws/internal/shared/license/keys/sukko.dev.key
+  DEV_PUB_PATH: ws/internal/shared/license/keys/sukko.dev.pub
   GENTOKEN_CMD: cd ws && go run ./internal/shared/license/gentoken
   PROVISIONING_URL: http://localhost:8080
 
+env:
+  # Build the license-embedding images with the dev public key embedded (FR-017),
+  # so keys minted at runtime via genkeys/gentoken validate against the running
+  # services. Consumed by the GO_BUILD_TAGS build arg in docker-compose.yml.
+  GO_BUILD_TAGS: sukko_e2e
+
 tasks:
+  # NOTE: this matrix boots via `sukko up`, which uses the sukko-cli's image-only compose
+  # (ghcr:latest, no build step) — so GO_BUILD_TAGS=sukko_e2e does NOT reach it and it
+  # validates whatever key the PUBLISHED images embed. It therefore cannot validate a
+  # pre-publish local branch's signing change; for local dev-key validation of license
+  # editions, use the SOURCE-build grid cells (task e2e:cell:pro-direct / enterprise-direct
+  # / expired-direct), which embed keys/sukko.dev.pub via the sukko_e2e build.
   license:
     desc: Run full E2E license matrix (Community → Pro → Enterprise → Expired)
     cmds:
@@ -35,8 +48,11 @@ tasks:
     desc: Auto-generate dev keypair if missing, init and start services
     cmds:
       - |
-        if [ ! -f "{{.DEV_KEY_PATH}}" ]; then
-          echo "Dev keypair not found — generating..."
+        # Regenerate when EITHER the private key OR the public key is missing: the
+        # sukko_e2e build embeds sukko.dev.pub, and a developer may have a stale
+        # sukko.dev.key without the matching .pub (FR-017 / T037).
+        if [ ! -f "{{.DEV_KEY_PATH}}" ] || [ ! -f "{{.DEV_PUB_PATH}}" ]; then
+          echo "Dev keypair incomplete — generating..."
           cd ws && go run ./internal/shared/license/genkeys
         else
           echo "Dev keypair exists"
@@ -594,15 +610,17 @@ tasks:
     desc: Run license hot-reload validation (requires dev signing key)
     cmds:
       - |
-        if [ ! -f "{{.DEV_KEY_PATH}}" ]; then
-          echo "Dev signing key not found — generating..."
+        if [ ! -f "{{.DEV_KEY_PATH}}" ] || [ ! -f "{{.DEV_PUB_PATH}}" ]; then
+          echo "Dev signing key incomplete — generating..."
           cd ws && go run ./internal/shared/license/genkeys
         fi
       - |
         echo "=== Running license-reload validation suite ==="
-        KEY=$(base64 < {{.DEV_KEY_PATH}} | tr -d '\n')
+        # The tester signing_key field now carries the PEM PKCS#8 ECDSA P-256 key
+        # TEXT directly (no base64) — file content == API content (FR-011). jq -Rs
+        # slurps the raw PEM (newlines and all) and JSON-escapes it safely.
         curl -sf http://localhost:8090/api/v1/tests \
           -H 'Content-Type: application/json' \
-          -d "{\"type\":\"validate\",\"suite\":\"license-reload\",\"signing_key\":\"$KEY\"}"
+          -d "$(jq -Rs --arg suite license-reload '{type:"validate",suite:$suite,signing_key:.}' < {{.DEV_KEY_PATH}})"
         echo ""
         echo "=== License-reload validation complete ==="

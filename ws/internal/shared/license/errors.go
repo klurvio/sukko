@@ -14,7 +14,7 @@ var (
 	// ErrLicenseExpired indicates the license key has passed its expiration date.
 	ErrLicenseExpired = errors.New("license expired")
 
-	// ErrLicenseInvalidSignature indicates the Ed25519 signature verification failed.
+	// ErrLicenseInvalidSignature indicates the ECDSA P-256 signature verification failed.
 	// This means the key is corrupt or was forged.
 	ErrLicenseInvalidSignature = errors.New("license signature invalid")
 

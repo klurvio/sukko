@@ -1,8 +1,12 @@
 package license
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -109,12 +113,21 @@ func TestParseAndVerify_InvalidJSON(t *testing.T) {
 	priv, pub := GenerateTestKeyPair()
 	SetPublicKeyForTesting(pub)
 
-	// Sign raw bytes that aren't valid JSON
+	// Sign raw bytes that aren't valid JSON — a validly-signed payload that
+	// passes signature verification but fails JSON unmarshal.
 	payload := []byte("not json at all")
-	sig := ed25519.Sign(priv, payload)
+	digest := sha256.Sum256(payload)
+	der, err := ecdsa.SignASN1(rand.Reader, priv, digest[:])
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	sig, err := derToRawSignature(der)
+	if err != nil {
+		t.Fatalf("convert signature: %v", err)
+	}
 	key := base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(sig)
 
-	_, err := ParseAndVerify(key)
+	_, err = ParseAndVerify(key)
 	if !errors.Is(err, ErrLicenseInvalidFormat) {
 		t.Errorf("expected ErrLicenseInvalidFormat for invalid JSON, got: %v", err)
 	}
@@ -141,5 +154,82 @@ func TestParseAndVerify_WithLimits(t *testing.T) {
 	}
 	if got.Limits.MaxTenants != 100 {
 		t.Errorf("Limits.MaxTenants = %d, want 100", got.Limits.MaxTenants)
+	}
+}
+
+// TestParseAndVerify_StrictRejection pins the FR-015 rejection paths distinctly:
+// a wrong-length signature is a format error, while a wrong-key signature and a
+// legacy Ed25519-signed key both fail signature verification (no dual-algorithm
+// acceptance). The wrong-key case shares intent with TestParseAndVerify_InvalidSignature
+// but is kept here so the three rejection classes read as one contract.
+//
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
+func TestParseAndVerify_StrictRejection(t *testing.T) {
+	_, pub := GenerateTestKeyPair()
+	SetPublicKeyForTesting(pub)
+
+	claims := Claims{Edition: Pro, Org: "Strict", Exp: time.Now().Add(time.Hour).Unix()}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	enc := base64.RawURLEncoding
+
+	t.Run("wrong length signature -> format error", func(t *testing.T) {
+		// 32-byte signature (not 64) must be rejected as a format error, not reach verify.
+		key := enc.EncodeToString(payload) + "." + enc.EncodeToString(make([]byte, 32))
+		if _, err := ParseAndVerify(key); !errors.Is(err, ErrLicenseInvalidFormat) {
+			t.Fatalf("got %v, want ErrLicenseInvalidFormat", err)
+		}
+	})
+
+	t.Run("wrong key signature -> signature error", func(t *testing.T) {
+		otherPriv, _ := GenerateTestKeyPair()
+		key := SignTestLicense(claims, otherPriv)
+		if _, err := ParseAndVerify(key); !errors.Is(err, ErrLicenseInvalidSignature) {
+			t.Fatalf("got %v, want ErrLicenseInvalidSignature", err)
+		}
+	})
+
+	t.Run("legacy Ed25519 signed key -> signature error", func(t *testing.T) {
+		// An Ed25519 signature is exactly 64 bytes, so it passes the length gate and
+		// must be rejected at ECDSA verification (no dual-algorithm acceptance).
+		_, edPriv, gerr := ed25519.GenerateKey(rand.Reader)
+		if gerr != nil {
+			t.Fatalf("ed25519 keygen: %v", gerr)
+		}
+		edSig := ed25519.Sign(edPriv, payload)
+		if len(edSig) != rawSigLen {
+			t.Fatalf("ed25519 sig len = %d, want %d (length gate would mask this)", len(edSig), rawSigLen)
+		}
+		key := enc.EncodeToString(payload) + "." + enc.EncodeToString(edSig)
+		if _, err := ParseAndVerify(key); !errors.Is(err, ErrLicenseInvalidSignature) {
+			t.Fatalf("got %v, want ErrLicenseInvalidSignature", err)
+		}
+	})
+}
+
+// TestParseAndVerify_FutureIatAccepted pins FR-005: the validator MUST NOT reject a
+// key whose iat is in the future — the license service does not guarantee iat <= now.
+//
+//nolint:paralleltest // shares package-level publicKey via SetPublicKeyForTesting
+func TestParseAndVerify_FutureIatAccepted(t *testing.T) {
+	priv, pub := GenerateTestKeyPair()
+	SetPublicKeyForTesting(pub)
+
+	claims := Claims{
+		Edition: Pro,
+		Org:     "Future Iat",
+		Exp:     time.Now().Add(24 * time.Hour).Unix(),
+		Iat:     time.Now().Add(365 * 24 * time.Hour).Unix(), // one year in the future
+	}
+	key := SignTestLicense(claims, priv)
+
+	got, err := ParseAndVerify(key)
+	if err != nil {
+		t.Fatalf("future-iat key must validate, got: %v", err)
+	}
+	if got.Org != "Future Iat" {
+		t.Errorf("Org = %q, want %q", got.Org, "Future Iat")
 	}
 }

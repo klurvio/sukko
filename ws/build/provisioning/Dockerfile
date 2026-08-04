@@ -21,8 +21,13 @@ ARG BUILD_TIME=unknown
 # CGO_ENABLED=0 ensures a static binary without C dependencies
 ARG TARGETOS
 ARG TARGETARCH
+# GO_BUILD_TAGS selects Go build tags (e.g. sukko_e2e, which embeds the dev license
+# public key so the e2e harness can validate keys it mints at runtime, per FR-017).
+# Empty by default = production build embedding the committed keys/sukko.pub.
+ARG GO_BUILD_TAGS=""
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
+    -tags "${GO_BUILD_TAGS}" \
     -ldflags="-s -w \
     -X 'github.com/klurvio/sukko/internal/shared/version.Version=${VERSION}' \
     -X 'github.com/klurvio/sukko/internal/shared/version.CommitHash=${COMMIT_HASH}' \
