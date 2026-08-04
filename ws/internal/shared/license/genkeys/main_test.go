@@ -3,10 +3,13 @@ package main
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,7 +20,7 @@ func TestRun(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	pubPath, privPath, err := run(dir)
+	pubPath, privPath, fpPath, err := run(dir)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -28,10 +31,15 @@ func TestRun(t *testing.T) {
 	if got := filepath.Base(privPath); got != "sukko.dev.key" {
 		t.Errorf("private key path = %s, want sukko.dev.key", got)
 	}
+	if got := filepath.Base(fpPath); got != "sukko.dev.fingerprints" {
+		t.Errorf("manifest path = %s, want sukko.dev.fingerprints", got)
+	}
 
-	// It must NOT have written the committed embedded key path.
-	if _, err := os.Stat(filepath.Join(dir, "sukko.pub")); !os.IsNotExist(err) {
-		t.Fatalf("genkeys wrote sukko.pub (must never touch the committed embedded key); stat err=%v", err)
+	// It must NOT have written the committed embedded key or manifest paths.
+	for _, committed := range []string{"sukko.pub", "sukko.fingerprints"} {
+		if _, err := os.Stat(filepath.Join(dir, committed)); !os.IsNotExist(err) {
+			t.Fatalf("genkeys wrote %s (must never touch committed embedded files); stat err=%v", committed, err)
+		}
 	}
 
 	// Public key: PKIX PEM, ECDSA P-256.
@@ -43,6 +51,20 @@ func TestRun(t *testing.T) {
 	ecPub, ok := parsedPub.(*ecdsa.PublicKey)
 	if !ok || ecPub.Curve != elliptic.P256() {
 		t.Fatalf("public key is not ECDSA P-256: %T", parsedPub)
+	}
+
+	// Manifest: exactly one line "<fp> local" where <fp> is the SPKI-DER SHA-256 of the pub key.
+	manifestRaw, err := os.ReadFile(fpPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	fields := strings.Fields(strings.TrimSpace(string(manifestRaw)))
+	if len(fields) != 2 || fields[1] != "local" {
+		t.Fatalf("manifest = %q, want '<fp> local'", string(manifestRaw))
+	}
+	sum := sha256.Sum256(pub)
+	if want := hex.EncodeToString(sum[:]); fields[0] != want {
+		t.Fatalf("manifest fingerprint = %s, want %s (SPKI-DER SHA-256 of dev pub key)", fields[0], want)
 	}
 
 	// Private key: PKCS#8 PEM, ECDSA P-256.

@@ -64,12 +64,18 @@ func derToRawSignature(der []byte) ([]byte, error) {
 	return raw, nil
 }
 
-// SetPublicKeyForTesting replaces the package-level publicKey for test isolation.
-// Must be called before ParseAndVerify in each test.
-// NOT exported outside the package — same-package tests only.
+// SetPublicKeysForTesting replaces the package-level embedded key SET for test
+// isolation (dual-key any-of, FR-018). Must be called before ParseAndVerify.
 //
-// Tests that call this MUST NOT use t.Parallel() since they share the
-// package-level publicKey variable (Constitution VIII).
+// Tests that call this (or SetPublicKeyForTesting) MUST NOT use t.Parallel() since
+// they share the package-level publicKeys variable (Constitution VIII).
+func SetPublicKeysForTesting(keys []*ecdsa.PublicKey) {
+	publicKeys = keys
+}
+
+// SetPublicKeyForTesting is the single-key convenience wrapper over
+// SetPublicKeysForTesting — kept with its original name+signature so existing
+// callers across packages stay unchanged. Sets the embedded set to exactly {key}.
 func SetPublicKeyForTesting(key *ecdsa.PublicKey) {
-	publicKey = key
+	publicKeys = []*ecdsa.PublicKey{key}
 }

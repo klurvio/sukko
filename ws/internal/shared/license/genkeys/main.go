@@ -22,11 +22,15 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/klurvio/sukko/internal/shared/license"
 )
 
 // keysDir is the license package's key directory, relative to the ws/ module root
@@ -34,44 +38,55 @@ import (
 const keysDir = "internal/shared/license/keys"
 
 func main() {
-	pubPath, privPath, err := run(keysDir)
+	pubPath, privPath, fpPath, err := run(keysDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "genkeys: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Public key:  %s (ECDSA P-256, PKIX PEM)\n", pubPath)
-	fmt.Printf("Private key: %s (ECDSA P-256, PKCS#8 PEM)\n", privPath)
+	fmt.Printf("Public key:   %s (ECDSA P-256, PKIX PEM)\n", pubPath)
+	fmt.Printf("Private key:  %s (ECDSA P-256, PKCS#8 PEM)\n", privPath)
+	fmt.Printf("Fingerprints: %s (<fp> %s)\n", fpPath, license.SentinelLocalVersion)
 	fmt.Println("IMPORTANT: The dev keys (sukko.dev.*) are gitignored. Keep the private key safe.")
 }
 
-// run generates a P-256 keypair and writes the dev public/private keys into dir,
-// returning their paths. Split out from main so it is unit-testable (never writes
-// sukko.pub).
-func run(dir string) (pubPath, privPath string, err error) {
+// run generates a P-256 keypair and writes the dev public/private keys and the matching
+// fingerprint manifest (sukko.dev.fingerprints, embedded by the sukko_e2e build) into dir,
+// returning their paths. Split out from main so it is unit-testable (never writes sukko.pub
+// or the committed manifest).
+func run(dir string) (pubPath, privPath, fpPath string, err error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return "", "", fmt.Errorf("generate key pair: %w", err)
+		return "", "", "", fmt.Errorf("generate key pair: %w", err)
 	}
 	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal public key: %w", err)
+		return "", "", "", fmt.Errorf("marshal public key: %w", err)
 	}
 	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal private key: %w", err)
+		return "", "", "", fmt.Errorf("marshal private key: %w", err)
 	}
 
 	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
 	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+	// Fingerprint manifest matching sukko.dev.pub (lowercase SHA-256 hex over SPKI DER),
+	// with the "local" sentinel version — the form embed_e2e.go embeds and license.init
+	// validates as a 1-key set.
+	sum := sha256.Sum256(pubDER)
+	manifest := hex.EncodeToString(sum[:]) + " " + license.SentinelLocalVersion + "\n"
 
 	pubPath = filepath.Join(dir, "sukko.dev.pub")
 	privPath = filepath.Join(dir, "sukko.dev.key")
+	fpPath = filepath.Join(dir, "sukko.dev.fingerprints")
 
 	if err := os.WriteFile(pubPath, pubPEM, 0o600); err != nil {
-		return "", "", fmt.Errorf("write public key: %w", err)
+		return "", "", "", fmt.Errorf("write public key: %w", err)
 	}
 	if err := os.WriteFile(privPath, privPEM, 0o600); err != nil {
-		return "", "", fmt.Errorf("write private key: %w", err)
+		return "", "", "", fmt.Errorf("write private key: %w", err)
 	}
-	return pubPath, privPath, nil
+	if err := os.WriteFile(fpPath, []byte(manifest), 0o600); err != nil {
+		return "", "", "", fmt.Errorf("write fingerprint manifest: %w", err)
+	}
+	return pubPath, privPath, fpPath, nil
 }

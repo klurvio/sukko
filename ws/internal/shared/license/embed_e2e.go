@@ -11,8 +11,15 @@ import _ "embed"
 // pristine for the FR-007 embedded-key proof — an explicit, mutually-exclusive
 // compile-time embed selection, not a runtime fallback (FR-017, §XV).
 //
-// keys/sukko.dev.pub is gitignored and produced by `go run ./genkeys`; the e2e build
-// runs genkeys before compiling (taskfiles/e2e), so it exists at build time.
+// keys/sukko.dev.pub and keys/sukko.dev.fingerprints are gitignored and produced by
+// `go run ./genkeys`; the e2e build runs genkeys before compiling (taskfiles/e2e), so
+// both exist at build time.
 //
 //go:embed keys/sukko.dev.pub
 var embeddedPublicKeyBytes []byte
+
+// embeddedFingerprintManifest under sukko_e2e is the dev manifest genkeys writes
+// (keys/sukko.dev.fingerprints, "<dev-fp> local"), matching keys/sukko.dev.pub.
+//
+//go:embed keys/sukko.dev.fingerprints
+var embeddedFingerprintManifest []byte

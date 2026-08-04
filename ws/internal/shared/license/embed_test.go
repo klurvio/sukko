@@ -21,11 +21,11 @@ func mustPKIXPEM(t *testing.T, pub any) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
 }
 
-// TestParsePublicKeyPEM_Rejects pins FR-018: the embedded-key parser must reject a
-// malformed PEM, a wrong block type, a non-ECDSA key, and a wrong-curve key — each
-// with a clear error — so a bad embedded key fails loudly at load, never a green boot
-// that then rejects every license.
-func TestParsePublicKeyPEM_Rejects(t *testing.T) {
+// TestParsePublicKeyBundle_Rejects pins FR-018: the embedded-key bundle parser must
+// reject a malformed PEM, a wrong block type, a non-ECDSA key, and a wrong-curve key —
+// each with a clear error — so a bad embedded key fails loudly at load, never a green
+// boot that then rejects every license.
+func TestParsePublicKeyBundle_Rejects(t *testing.T) {
 	t.Parallel()
 
 	// Valid P-256 fixture — must parse.
@@ -59,7 +59,7 @@ func TestParsePublicKeyPEM_Rejects(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := parsePublicKeyPEM(tt.pem)
+			_, err := parsePublicKeyBundle(tt.pem)
 			if tt.wantErr && err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -70,29 +70,34 @@ func TestParsePublicKeyPEM_Rejects(t *testing.T) {
 	}
 }
 
-// TestEmbeddedKeyFingerprint pins FR-020: the committed production/placeholder public
-// key (keys/sukko.pub) MUST have a SHA-256 (over its PKIX/SPKI DER) equal to
-// expectedPublicKeyFingerprint. This is the offline drift tripwire — no cloud dependency —
-// and the same test validates the KMS-delivered production key once the DK-1 cross-repo PR
-// swaps the placeholder (DK-2). It reads keys/sukko.pub directly (not embeddedPublicKeyBytes),
-// so it pins the committed production key regardless of build tag: under -tags sukko_e2e the
-// embedded bytes are the regenerated dev key, which intentionally does not match the pin.
-func TestEmbeddedKeyFingerprint(t *testing.T) {
+// TestEmbeddedKeySetTripwire pins FR-020 (set-aware): the committed production/placeholder
+// key BUNDLE (keys/sukko.pub) and its fingerprint MANIFEST (keys/sukko.fingerprints) MUST
+// form an exact ordered bijection with valid set invariants (1..2 keys, no dups). This is
+// the offline drift tripwire — no cloud dependency — and the same test validates the
+// KMS-delivered production set once the delivery PR swaps the placeholder. It reads the
+// committed files directly (not embeddedPublicKeyBytes), so it pins the committed production
+// set regardless of build tag: under -tags sukko_e2e the embedded bytes are the regenerated
+// dev key, which intentionally does not match the committed manifest.
+func TestEmbeddedKeySetTripwire(t *testing.T) {
 	t.Parallel()
 
-	pemBytes, err := os.ReadFile("keys/sukko.pub")
+	bundle, err := os.ReadFile("keys/sukko.pub")
 	if err != nil {
-		t.Fatalf("read committed public key: %v", err)
+		t.Fatalf("read committed public key bundle: %v", err)
 	}
-	pub, err := parsePublicKeyPEM(pemBytes)
+	manifestBytes, err := os.ReadFile("keys/sukko.fingerprints")
 	if err != nil {
-		t.Fatalf("parse embedded key: %v", err)
+		t.Fatalf("read committed fingerprint manifest: %v", err)
 	}
-	fp, err := publicKeyFingerprint(pub)
+	keys, err := parsePublicKeyBundle(bundle)
 	if err != nil {
-		t.Fatalf("fingerprint: %v", err)
+		t.Fatalf("parse committed bundle: %v", err)
 	}
-	if fp != expectedPublicKeyFingerprint {
-		t.Fatalf("embedded key fingerprint = %s, want %s\n(if the embedded key changed intentionally, update expectedPublicKeyFingerprint in license.go)", fp, expectedPublicKeyFingerprint)
+	manifest, err := parseFingerprintManifest(manifestBytes)
+	if err != nil {
+		t.Fatalf("parse committed manifest: %v", err)
+	}
+	if err := validateEmbeddedKeySet(keys, manifest); err != nil {
+		t.Fatalf("committed key set fails invariants (bundle/manifest drift): %v\n(if the embedded key set changed intentionally, the delivery PR updates keys/sukko.pub + keys/sukko.fingerprints in lockstep)", err)
 	}
 }

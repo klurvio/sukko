@@ -1,6 +1,7 @@
 package license
 
 import (
+	"crypto/ecdsa"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -24,7 +25,7 @@ func TestSignTestLicense_ShortScalarRoundTrip(t *testing.T) {
 		key := SignTestLicense(claims, priv)
 
 		// Every signature must verify, short scalar or not.
-		if _, err := parseAndVerify(key, pub); err != nil {
+		if _, err := parseAndVerify(key, []*ecdsa.PublicKey{pub}); err != nil {
 			t.Fatalf("iter %d: verify failed: %v", i, err)
 		}
 
