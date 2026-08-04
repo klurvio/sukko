@@ -7,6 +7,19 @@
 # (e2e_boot_cell + e2e_readiness_gate + e2e_kafka_ready + e2e_run_battery) is the
 # single source of truth for booting an E2E (edition, backend, suites) cell.
 
+# e2e_ensure_dev_keypair
+# Guarantees the dev license keypair (sukko.dev.key + sukko.dev.pub) exists before any
+# source build. Every source-built grid cell now compiles with -tags sukko_e2e (the
+# GO_BUILD_TAGS env in taskfiles/e2e.yml), which //go:embeds keys/sukko.dev.pub — so the
+# file MUST exist for the build to succeed even in Community cells that mint no license
+# (the embedded dev key is simply unused there). Regenerates when EITHER half is missing:
+# a stale sukko.dev.key without the matching .pub would still fail the embed (FR-017 / T037).
+e2e_ensure_dev_keypair() {
+  if [ ! -f "ws/internal/shared/license/keys/sukko.dev.key" ] || [ ! -f "ws/internal/shared/license/keys/sukko.dev.pub" ]; then
+    (cd ws && go run ./internal/shared/license/genkeys) >&2
+  fi
+}
+
 # e2e_mint_license <edition> <org> <expiry>
 # Ensures the dev signing key exists, mints a dev license token for the given
 # edition with the given expiry, and echoes the token. Must run BEFORE boot:
@@ -17,12 +30,7 @@
 # var owns it (§I single-source).
 e2e_mint_license() {
   local edition="$1" org="$2" expiry="$3"
-  # Regenerate when EITHER the private key OR the public key is missing: the
-  # sukko_e2e build embeds sukko.dev.pub, so a stale sukko.dev.key without the
-  # matching .pub would fail the //go:embed at build time (FR-017 / T037).
-  if [ ! -f "ws/internal/shared/license/keys/sukko.dev.key" ] || [ ! -f "ws/internal/shared/license/keys/sukko.dev.pub" ]; then
-    (cd ws && go run ./internal/shared/license/genkeys) >&2
-  fi
+  e2e_ensure_dev_keypair
   (cd ws && go run ./internal/shared/license/gentoken \
     --key internal/shared/license/keys/sukko.dev.key \
     --edition "$edition" --org "$org" --expires "$expiry")
@@ -94,11 +102,16 @@ e2e_boot_cell() {
   local edition="$1" backend="$2" admin_key_path="$3" expiry="$4"
   shift 4
   local token="" admin_key
+  # The source build below compiles with -tags sukko_e2e, which embeds sukko.dev.pub —
+  # so the dev keypair must exist for EVERY cell, including Community cells that mint no
+  # license (without this, their build fails at the //go:embed). Minting cells regenerate
+  # it too via e2e_mint_license; the guard is idempotent.
+  e2e_ensure_dev_keypair
   if [ "$edition" != "community" ]; then
     echo "=== Mint $edition token, expiry=$expiry (before boot) ===" >&2
     token=$(e2e_mint_license "$edition" "E2E ${edition}" "$expiry")
   else
-    echo "=== Community cell — no license key ===" >&2
+    echo "=== Community cell — no license key (dev key still embedded for the sukko_e2e build) ===" >&2
   fi
   admin_key=$(e2e_gen_admin_key "$admin_key_path")
   echo "=== Boot $backend-mode stack (build from source, edition=$edition) ===" >&2
