@@ -117,29 +117,34 @@ func TestParsePublicKeyBundle(t *testing.T) {
 	two := append(append([]byte{}, pemA...), pemB...)
 
 	t.Run("1-block", func(t *testing.T) {
+		t.Parallel()
 		keys, err := parsePublicKeyBundle(pemA)
 		if err != nil || len(keys) != 1 {
 			t.Fatalf("got %d keys, err %v", len(keys), err)
 		}
 	})
 	t.Run("2-block", func(t *testing.T) {
+		t.Parallel()
 		keys, err := parsePublicKeyBundle(two)
 		if err != nil || len(keys) != 2 {
 			t.Fatalf("got %d keys, err %v", len(keys), err)
 		}
 	})
 	t.Run("2-block + trailing non-PEM", func(t *testing.T) {
+		t.Parallel()
 		keys, err := parsePublicKeyBundle(append(append([]byte{}, two...), []byte("trailing junk\n")...))
 		if err != nil || len(keys) != 2 {
 			t.Fatalf("got %d keys, err %v", len(keys), err)
 		}
 	})
 	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
 		if _, err := parsePublicKeyBundle(nil); err == nil {
 			t.Fatal("want error for empty bundle")
 		}
 	})
 	t.Run("wrong block type", func(t *testing.T) {
+		t.Parallel()
 		wrong := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte{0x01, 0x02}})
 		if _, err := parsePublicKeyBundle(wrong); err == nil {
 			t.Fatal("want error for non-PUBLIC-KEY block")
