@@ -79,7 +79,7 @@ func TestGoldenVectors(t *testing.T) {
 			}
 
 			// Verify through the real validator's per-call seam (FR-007).
-			_, verr := parseAndVerify(v.Key, pub)
+			_, verr := parseAndVerify(v.Key, []*ecdsa.PublicKey{pub})
 			switch v.Expect {
 			case "valid":
 				if verr != nil {

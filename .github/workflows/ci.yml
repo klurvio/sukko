@@ -43,11 +43,15 @@ jobs:
           go-version-file: ws/go.mod
           cache: true
 
+      # ws/.ci-test-tags is the committed CI arming switch (empty in the placeholder era;
+      # the KMS delivery PR writes "sukko_realkey" to arm the anti-circularity suite).
+      # It is a data file, not a workflow edit, because the delivery GitHub App has
+      # contents+PR write but not `workflows` permission (spec R-03).
       - name: Vet
-        run: go vet ./...
+        run: go vet -tags "$(cat .ci-test-tags)" ./...
 
       - name: Run tests
-        run: go test -race -count=1 -timeout=10m ./...
+        run: go test -race -count=1 -timeout=10m -tags "$(cat .ci-test-tags)" ./...
 
   # ---------------------------------------------------------------------------
   # Lint — golangci-lint + verify auto-fixable issues
@@ -65,11 +69,24 @@ jobs:
         with:
           go-version-file: ws/go.mod
 
+      # Match the test job's build tags (ws/.ci-test-tags) so the armed realkey files
+      # are linted too (empty → default build in the placeholder era).
+      - name: Compute build tags
+        id: buildtags
+        run: |
+          TAGS="$(cat .ci-test-tags)"
+          if [ -n "$TAGS" ]; then
+            echo "args=--build-tags $TAGS" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
           version: v2.12.2
           working-directory: ws
+          args: ${{ steps.buildtags.outputs.args }}
 
       - name: Verify auto-fixable issues are resolved
         run: |
