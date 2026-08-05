@@ -37,13 +37,13 @@ const (
 	// embedded set larger than this is a build error caught at init.
 	maxEmbeddedKeys = 2
 
-	// SentinelPlaceholderVersion and SentinelLocalVersion are the manifest
-	// key-version tokens used in place of a real KMS CryptoKeyVersion (data-model
-	// §2, §I named-constant): the committed placeholder key carries "placeholder"
-	// and the dev/e2e key carries "local". The release gate refuses to publish a
-	// build whose embedded manifest still contains SentinelPlaceholderVersion.
+	// SentinelPlaceholderVersion is the manifest key-version token for the committed
+	// placeholder key (§I named-constant, data-model §2). The release gate refuses to
+	// publish a build whose embedded manifest still contains it.
 	SentinelPlaceholderVersion = "placeholder"
-	SentinelLocalVersion       = "local"
+	// SentinelLocalVersion is the manifest key-version token for the dev/e2e key, keeping
+	// licenses.signing_key_version total across the KMS and local signers.
+	SentinelLocalVersion = "local"
 )
 
 // embeddedPublicKeyBytes (declared in embed_default.go / embed_e2e.go, build-tag
@@ -163,7 +163,7 @@ func parseFingerprintManifest(b []byte) ([]manifestEntry, error) {
 // isLowerHex reports whether s is entirely lowercase hexadecimal digits.
 func isLowerHex(s string) bool {
 	for _, r := range s {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
 			return false
 		}
 	}
